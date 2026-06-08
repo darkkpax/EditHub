@@ -57,7 +57,7 @@ enum FileClassifier {
         if audioExtensions.contains(ext) {
             // Аудио различаем только по ключевым словам.
             if matches(haystack, voiceKeywords) { return .voice }
-            if matches(haystack, sfxKeywords) { return .misc }
+            if matches(haystack, sfxKeywords) { return .sfx }
             if matches(haystack, musicKeywords) { return .music }
             // Без явных маркеров — по умолчанию музыка.
             return .music

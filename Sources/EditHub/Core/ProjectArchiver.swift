@@ -25,8 +25,17 @@ enum ProjectArchiver {
 
     // MARK: - Консервация
 
-    /// Законсервировать проект: упаковать ценное в iCloud, удалить тяжёлое.
-    static func archive(_ project: Project) throws {
+    /// Законсервировать проект: упаковать ценное в iCloud, удалить выбранные
+    /// тяжёлые папки.
+    /// - Parameters:
+    ///   - project: проект для консервации.
+    ///   - foldersToRemove: какие тяжёлые папки очистить локально. По умолчанию —
+    ///     все тяжёлые (`ProjectFolder.removableOnArchive`). Пользователь может
+    ///     передать подмножество, чтобы что-то оставить на диске.
+    static func archive(
+        _ project: Project,
+        foldersToRemove: Set<ProjectFolder> = Set(ProjectFolder.removableOnArchive)
+    ) throws {
         guard !project.isArchived else { throw ArchiverError.alreadyArchived }
 
         let fm = FileManager.default
@@ -57,9 +66,9 @@ enum ProjectArchiver {
         try ZipArchiver.archive(directory: staging, outputURL: destinationURL)
         let size = (try? destinationURL.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init)
 
-        // 3. Удаляем тяжёлые папки локально (содержимое, папку оставляем пустой).
+        // 3. Удаляем выбранные тяжёлые папки локально (содержимое; папку оставляем пустой).
         var removed: [String] = []
-        for folder in ProjectFolder.allCases where folder.isHeavy {
+        for folder in ProjectFolder.allCases where folder.isHeavy && foldersToRemove.contains(folder) {
             let dir = project.folderURL(folder)
             guard fm.fileExists(atPath: dir.path) else { continue }
             let contents = (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []

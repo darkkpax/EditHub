@@ -12,6 +12,7 @@ struct ProjectDetailView: View {
     @State private var isError = false
     @State private var isDropTargeted = false
     @State private var lastSummary: SortSummary?
+    @State private var showArchiveSheet = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -24,6 +25,14 @@ struct ProjectDetailView: View {
         .onDrop(of: [UTType.fileURL], isTargeted: $isDropTargeted, perform: handleDrop)
         .navigationTitle(project.name)
         .toolbar { toolbarContent }
+        .sheet(isPresented: $showArchiveSheet) {
+            ArchiveOptionsSheet(project: project) { foldersToRemove in
+                showArchiveSheet = false
+                performArchive(removing: foldersToRemove)
+            } onCancel: {
+                showArchiveSheet = false
+            }
+        }
     }
 
     // MARK: - Header
@@ -73,7 +82,7 @@ struct ProjectDetailView: View {
                 .disabled(isWorking)
             } else {
                 Button {
-                    runArchive()
+                    showArchiveSheet = true
                 } label: { Label("Законсервировать", systemImage: "archivebox") }
                 .disabled(isWorking)
             }
@@ -131,15 +140,17 @@ struct ProjectDetailView: View {
         return true
     }
 
-    private func runArchive() {
+    private func performArchive(removing foldersToRemove: Set<ProjectFolder>) {
         isWorking = true
         message = "Консервирую в iCloud…"
         isError = false
         let project = project
         Task.detached(priority: .userInitiated) {
             do {
-                try ProjectArchiver.archive(project)
-                await finish(success: "Готово. FOOTAGE удалён, ценное в iCloud.")
+                try ProjectArchiver.archive(project, foldersToRemove: foldersToRemove)
+                let removedNames = foldersToRemove.map(\.folderName).sorted().joined(separator: ", ")
+                let detail = removedNames.isEmpty ? "ничего не удалено" : "удалено: \(removedNames)"
+                await finish(success: "Готово. Ценное в iCloud, \(detail).")
             } catch {
                 await finish(error: error.localizedDescription)
             }
@@ -154,7 +165,7 @@ struct ProjectDetailView: View {
         Task.detached(priority: .userInitiated) {
             do {
                 try ProjectArchiver.restore(manifestURL: manifest)
-                await finish(success: "Восстановлено. Осталось дозалить FOOTAGE.")
+                await finish(success: "Восстановлено. Осталось дозалить тяжёлые папки.")
             } catch {
                 await finish(error: error.localizedDescription)
             }

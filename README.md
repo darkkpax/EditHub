@@ -48,6 +48,18 @@ Sources/EditHub/
 
 ## Сборка
 
+**Через Xcode (рекомендуется):**
+
+```sh
+xcodegen generate        # пересобрать EditHub.xcodeproj из project.yml
+open EditHub.xcodeproj    # ⌘R для запуска
+```
+
+`project.yml` — источник истины для Xcode-проекта (Info.plist и entitlements
+генерируются из него; правь их там, не в `App/`).
+
+**Через SwiftPM:**
+
 ```sh
 swift build              # отладочная сборка
 swift run EditHub        # запуск
@@ -62,10 +74,13 @@ swift run EditHub        # запуск
 entitlements из `Packaging/macOS/EditHub.entitlements` и своим iCloud-контейнером
 (замени `iCloud.com.local.EditHub` и Team ID).
 
-## Открытые вопросы (TODO)
+## Консервация: что удаляется
 
-- `SFX/звуки` сейчас уходят в `MISC`. При желании — завести отдельную папку `SFX`
-  в `ProjectFolder` (источник истины), классификатор подхватит автоматически.
-- При консервации `READY VIDEO` сейчас считается «ценным» (уходит в архив).
-  Если это тяжёлый рендер — поменять `isHeavy` для `.readyVideo` в `ProjectFolders.swift`.
-- Имя/бандл `EditHub` — рабочее, можно сменить.
+Тяжёлые папки (`FOOTAGE`, `READY VIDEO`) при консервации удаляются локально —
+их легко перекачать. Перед архивацией открывается диалог, где для конкретного
+проекта можно выбрать, что именно удалять (показывается размер каждой папки),
+а что оставить. Ценные папки (`MUSIC, VOICE, B-ROLL, SFX, SUBS, MISC`) всегда
+уходят в архив.
+
+Что считается тяжёлым/ценным — задаётся в одном месте: `isHeavy` в
+[ProjectFolders.swift](Sources/EditHub/Scaffolder/ProjectFolders.swift).
