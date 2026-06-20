@@ -35,6 +35,11 @@ enum FileClassifier {
         "sfx", "fx_", "_fx", "foley", "sound", "whoosh", "transition", "riser", "impact",
         "звук", "эффект", "шум"
     ]
+    /// Финальные рендеры / экспорты — сразу в READY VIDEO.
+    private static let readyKeywords = [
+        "ready", "final", "export", "render", "master", "delivery", "_v1", "_v2", "_v3",
+        "готов", "финал", "экспорт", "рендер", "мастер"
+    ]
 
     /// Определить целевую папку для файла.
     /// - Parameters:
@@ -49,7 +54,9 @@ enum FileClassifier {
         }
 
         if videoExtensions.contains(ext) {
-            // Видео-файлы: по умолчанию футаж, но «broll» уводит в B-ROLL.
+            // Видео-файлы: финальные рендеры → READY VIDEO, броллы → B-ROLL,
+            // иначе сырой футаж.
+            if matches(haystack, readyKeywords) { return .readyVideo }
             if matches(haystack, brollKeywords) { return .broll }
             return .footage
         }

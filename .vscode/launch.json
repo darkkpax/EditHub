@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:EditHub}",
+            "name": "Debug EditHub",
+            "target": "EditHub",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug EditHub"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:EditHub}",
+            "name": "Release EditHub",
+            "target": "EditHub",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release EditHub"
+        }
+    ]
+}

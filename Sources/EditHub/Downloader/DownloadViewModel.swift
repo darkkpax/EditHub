@@ -1,40 +1,86 @@
 import AppKit
 import Foundation
+import Observation
 import SwiftUI
 
 typealias ProgressHandler = @MainActor (_ status: String, _ fraction: Double) -> Void
 
+/// One pending download captured by the "+" button: its link plus the exact
+/// destination folder (as a security-scoped bookmark) chosen at the time it was
+/// added, so each queued item lands in its own folder.
+struct QueueItem: Identifiable, Equatable {
+    let id = UUID()
+    let link: String
+    let destinationBookmark: Data?
+    let destinationPath: String
+
+    /// Human-friendly label for the link, e.g. "Drive file · 1hWh…".
+    var displayName: String { DownloadFormatting.friendlyLinkName(link) }
+
+    static func == (lhs: QueueItem, rhs: QueueItem) -> Bool { lhs.id == rhs.id }
+}
+
 @MainActor
-final class DownloadViewModel: NSObject, ObservableObject {
-    @Published var linkText = ""
-    @Published var destinationDisplayPath = ""
-    @Published var statusText = ""
-    @Published var progressCaption = "WAITING..."
-    @Published var progressFraction: Double = 0
-    @Published var isLoading = false
-    @Published var isPaused = false
-    @Published var hasError = false
-    @Published var errorMessage: String?
-    @Published var downloadSpeedText = "--"
+@Observable
+final class DownloadViewModel: NSObject {
+    var linkText = ""
+    var destinationDisplayPath = ""
+    var statusText = ""
+    var progressCaption = "Waiting…"
+    var progressFraction: Double = 0
+    var isLoading = false
+    var isPaused = false
+    var hasError = false
+    var errorMessage: String?
+    var downloadSpeedText = "--"
+    var downloadedSizeText = "--"
+    var totalSizeText = "--"
+    var remainingTimeText = "--"
+    var recoverableSessions: [PersistedDownloadState] = []
+    var queue: [QueueItem] = []
+    /// The project folder the active download is landing in (the parent of the
+    /// destination folder, e.g. the project that owns the FOOTAGE folder). Used
+    /// by the project list to show inline download progress on the right row.
+    var activeDownloadProjectURL: URL?
+    /// Bumped each time the link/path fields are cleared into the queue, so the
+    /// UI can play a brief "cleared" pulse animation.
+    var fieldsResetPulse: UInt = 0
 
     var canStartDownload: Bool {
-        !isLoading
-            && !normalizedLinkText().isEmpty
-            && destinationStore.selectedURL != nil
+        guard !isLoading else { return false }
+        // Ready when the current fields hold a valid download, OR when nothing is
+        // typed but the queue has items waiting to run.
+        let hasCurrent = !normalizedLinkText().isEmpty && destinationStore.selectedURL != nil
+        let hasQueueOnly = normalizedLinkText().isEmpty && !queue.isEmpty
+        return hasCurrent || hasQueueOnly
     }
 
-    private let fileManager = FileManager.default
-    private let destinationStore = DownloadDestinationStore()
-    private let recoveryStore = PersistedDownloadStateStore()
-    private var downloadControl = DownloadControlCoordinator()
-    private var currentDownloadTask: Task<Void, Never>?
-    private var activeRecoveryState: PersistedDownloadState?
-    private var lastAutofilledClipboardLink = ""
-    private var userInitiatedCancellation = false
-    private var antiSleepActivity: NSObjectProtocol?
-    private let diagnostics = DownloadDiagnosticsStore()
-    private var smoothedDownloadSpeedBytesPerSecond: Double?
-    private var lastSpeedTextUpdateAt: Date?
+    @ObservationIgnored private let fileManager = FileManager.default
+    @ObservationIgnored private let destinationStore = DownloadDestinationStore()
+    @ObservationIgnored private let recoveryStore = PersistedDownloadStateStore()
+    @ObservationIgnored private var downloadControl = DownloadControlCoordinator()
+    @ObservationIgnored private var currentDownloadTask: Task<Void, Never>?
+    @ObservationIgnored private var activeRecoveryState: PersistedDownloadState?
+    @ObservationIgnored private var lastAutofilledClipboardLink = ""
+    @ObservationIgnored private var userInitiatedCancellation = false
+    @ObservationIgnored private var antiSleepActivity: NSObjectProtocol?
+    @ObservationIgnored private let diagnostics = DownloadDiagnosticsStore()
+    @ObservationIgnored private var smoothedDownloadSpeedBytesPerSecond: Double?
+    @ObservationIgnored private var lastSpeedTextUpdateAt: Date?
+    @ObservationIgnored private var etaTimer: Timer?
+    @ObservationIgnored private var latestBytesWritten: Int64 = 0
+    @ObservationIgnored private var latestBytesExpected: Int64?
+    @ObservationIgnored private var smoothedRemainingSeconds: Double?
+    @ObservationIgnored private var lastRemainingTextUpdateAt: Date?
+    @ObservationIgnored private var lastSizeTextUpdateAt: Date?
+    @ObservationIgnored
+    private let byteCountFormatter: ByteCountFormatter = {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        formatter.allowedUnits = [.useKB, .useMB, .useGB]
+        formatter.isAdaptive = true
+        return formatter
+    }()
 
     override init() {
         super.init()
@@ -45,14 +91,19 @@ final class DownloadViewModel: NSObject, ObservableObject {
             name: NSApplication.willTerminateNotification,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleDownloadSessionSettingsChanged),
+            name: .downloadSessionSettingsChanged,
+            object: nil
+        )
+        refreshRecoverableSessions()
+        sweepOrphanedStagingDirectories()
 
-        if let state = recoverableStateFromDisk() {
+        if !recoverableSessions.isEmpty {
             withAnimation(SoftIOSMotion.entry) {
-                linkText = state.originalLink
-                statusText = "RESTORING PREVIOUS DOWNLOAD..."
+                statusText = "Saved sessions: \(recoverableSessions.count)"
             }
-            activeRecoveryState = state
-            startDownload(resumeRecoveryIfPossible: true)
         }
     }
 
@@ -66,7 +117,7 @@ final class DownloadViewModel: NSObject, ObservableObject {
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
         panel.canCreateDirectories = true
-        panel.prompt = "CHOOSE"
+        panel.prompt = "Choose"
 
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
@@ -76,6 +127,7 @@ final class DownloadViewModel: NSObject, ObservableObject {
                 destinationDisplayPath = destinationStore.displayPath
                 statusText = ""
             }
+            sweepOrphanedStagingDirectories()
             dismissError()
         } catch {
             setError(error.localizedDescription)
@@ -114,16 +166,109 @@ final class DownloadViewModel: NSObject, ObservableObject {
         dismissError()
     }
 
-    func startDownload() {
-        startDownload(resumeRecoveryIfPossible: true)
+    /// "+" is available whenever there's a link to capture (a folder isn't
+    /// required — we fall back to the last selected one when the item runs).
+    var canEnqueue: Bool {
+        !normalizedLinkText().isEmpty
     }
 
-    private func startDownload(resumeRecoveryIfPossible: Bool) {
+    /// Captures the current link + chosen folder into the queue and clears the
+    /// fields so the next one can be typed in. Press "+" as many times as needed.
+    func enqueueCurrent() {
+        let link = normalizedLinkText()
+        guard !link.isEmpty else { return }
+
+        let item = QueueItem(
+            link: link,
+            destinationBookmark: destinationStore.currentBookmark,
+            destinationPath: destinationStore.displayPath
+        )
+        withAnimation(SoftIOSMotion.morph) {
+            queue.append(item)
+            linkText = ""
+            // Blank the path field too so the next entry starts fresh; the
+            // captured bookmark keeps this item's folder safe.
+            destinationStore.clearSelection()
+            destinationDisplayPath = ""
+            statusText = "Queued: \(queue.count)"
+            // Bumped so the fields can play a quick "cleared" pulse.
+            fieldsResetPulse &+= 1
+        }
+        lastAutofilledClipboardLink = link  // don't re-autofill what we just queued
+        dismissError()
+    }
+
+    /// Queue a link to download into a specific folder, captured as a
+    /// security-scoped bookmark so it survives until the item runs. If nothing
+    /// is currently downloading, the queue starts immediately. This is the entry
+    /// point used by the create-project popover.
+    func queueDownload(link: String, into folder: URL) {
+        let trimmed = link.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try? destinationStore.setSelectedURL(folder)
+
+        let item = QueueItem(
+            link: trimmed,
+            destinationBookmark: destinationStore.currentBookmark,
+            destinationPath: folder.path
+        )
+        withAnimation(SoftIOSMotion.morph) {
+            queue.append(item)
+            statusText = "Queued: \(queue.count)"
+        }
+        dismissError()
+
+        if !isLoading {
+            startNextQueuedItemIfNeeded()
+        }
+    }
+
+    func removeFromQueue(_ item: QueueItem) {
+        withAnimation(SoftIOSMotion.state) {
+            queue.removeAll { $0.id == item.id }
+        }
+    }
+
+    func clearQueue() {
+        withAnimation(SoftIOSMotion.state) {
+            queue.removeAll()
+        }
+    }
+
+    /// After a download finishes (or fails), pull the next queued item, restore
+    /// its folder, and start it automatically.
+    private func startNextQueuedItemIfNeeded() {
+        guard currentDownloadTask == nil, !isLoading else { return }
+        guard !queue.isEmpty else { return }
+
+        let next = queue.removeFirst()
+
+        if let bookmark = next.destinationBookmark {
+            destinationStore.setFromBookmark(bookmark)
+            destinationDisplayPath = destinationStore.displayPath
+        }
+
+        withAnimation(SoftIOSMotion.text) {
+            linkText = next.link
+        }
+        startDownload()
+    }
+
+    func startDownload() {
         guard currentDownloadTask == nil else { return }
         userInitiatedCancellation = false
 
-        if resumeRecoveryIfPossible, let recoveryState = activeRecoveryState ?? recoverableStateFromDisk() {
-            activeRecoveryState = recoveryState
+        // Empty fields but a non-empty queue → just begin the queue.
+        if normalizedLinkText().isEmpty, !queue.isEmpty {
+            startNextQueuedItemIfNeeded()
+            return
+        }
+
+        if let recoveryState = activeRecoveryState,
+           recoveryState.originalLink == normalizedLinkText(),
+           fileManager.fileExists(atPath: recoveryState.sessionDirectoryPath) {
             currentDownloadTask = Task { [weak self] in
                 await self?.download(resumeState: recoveryState)
             }
@@ -131,7 +276,7 @@ final class DownloadViewModel: NSObject, ObservableObject {
         }
 
         guard let url = URL(string: normalizedLinkText()) else {
-            setError("ADD A VALID GOOGLE DRIVE OR DROPBOX LINK.")
+            setError("Add a valid Google Drive, Dropbox, OneDrive, pCloud or MediaFire link.")
             return
         }
 
@@ -140,11 +285,46 @@ final class DownloadViewModel: NSObject, ObservableObject {
         }
     }
 
+    func restoreSession(_ session: PersistedDownloadState) {
+        guard !isLoading else { return }
+        guard fileManager.fileExists(atPath: session.sessionDirectoryPath) else {
+            recoveryStore.clear(session)
+            refreshRecoverableSessions()
+            setError("Saved session files are missing.")
+            return
+        }
+
+        activeRecoveryState = session
+        withAnimation(SoftIOSMotion.text) {
+            linkText = session.originalLink
+            statusText = "Restoring: \(session.shortDisplayTitle)"
+        }
+        startDownload()
+    }
+
+    func forgetSession(_ session: PersistedDownloadState) {
+        recoveryStore.clear(session)
+        try? fileManager.removeItem(at: session.sessionDirectoryURL)
+        refreshRecoverableSessions()
+    }
+
+    /// Menu label for a saved session: title plus how much is already on disk
+    /// and how much is left, e.g. "Google Drive - VIDEO.MP4 — 1,2 GB / 10 GB · 8,8 GB LEFT".
+    func recoverySessionLabel(_ session: PersistedDownloadState) -> String {
+        "\(session.shortDisplayTitle) — \(session.progressSummary(formatter: byteCountFormatter))"
+    }
+
+    func clearSavedSessions() {
+        recoveryStore.clearAll(removeSessionDirectories: true)
+        activeRecoveryState = nil
+        refreshRecoverableSessions()
+    }
+
     func togglePause() {
         guard isLoading else { return }
         withAnimation(SoftIOSMotion.pause) {
             isPaused.toggle()
-            statusText = isPaused ? "PAUSED" : progressCaption
+            statusText = isPaused ? "Paused" : progressCaption
         }
         downloadControl.setPaused(isPaused)
     }
@@ -156,10 +336,13 @@ final class DownloadViewModel: NSObject, ObservableObject {
         downloadControl.cancel()
         currentDownloadTask?.cancel()
         withAnimation(SoftIOSMotion.morph) {
-            statusText = "DOWNLOAD CANCELLED."
-            progressCaption = "CANCELLED"
+            statusText = "Download cancelled."
+            progressCaption = "Cancelled"
             progressFraction = 0
             downloadSpeedText = "--"
+            downloadedSizeText = "--"
+            totalSizeText = "--"
+            remainingTimeText = "--"
         }
     }
 
@@ -174,12 +357,12 @@ final class DownloadViewModel: NSObject, ObservableObject {
     private func downloadInternal(sourceURL: URL?, resumeState: PersistedDownloadState?) async {
         guard !isLoading else { return }
         guard let url = sourceURL else {
-            setError("RECOVERY STATE IS INVALID. START A NEW DOWNLOAD.")
+            setError("Recovery state is invalid. Start a new download.")
             clearRecoveryState(removeSessionDirectory: true)
             return
         }
-        guard let destinationURL = destinationStore.selectedURL else {
-            setError("CHOOSE DOWNLOAD PATH FIRST.")
+        guard let destinationURL = resumeState?.finalDestinationURL ?? destinationStore.selectedURL else {
+            setError("Choose a download folder first.")
             return
         }
 
@@ -187,12 +370,18 @@ final class DownloadViewModel: NSObject, ObservableObject {
             isLoading = true
             isPaused = false
             progressFraction = 0
-            progressCaption = "PREPARING..."
-            statusText = "DETECTING SOURCE..."
+            progressCaption = "Preparing…"
+            statusText = "Detecting source…"
             downloadSpeedText = "--"
+            downloadedSizeText = "--"
+            totalSizeText = "--"
+            remainingTimeText = "--"
+            // Destinations are `<project>/FOOTAGE`; the project is the parent.
+            activeDownloadProjectURL = destinationURL.deletingLastPathComponent()
         }
         smoothedDownloadSpeedBytesPerSecond = nil
         lastSpeedTextUpdateAt = nil
+        startETATimer()
         dismissError()
         downloadControl = DownloadControlCoordinator()
         antiSleepActivity = ProcessInfo.processInfo.beginActivity(
@@ -204,13 +393,25 @@ final class DownloadViewModel: NSObject, ObservableObject {
         defer {
             currentDownloadTask = nil
             downloadControl.reset()
+            stopETATimer()
             withAnimation(SoftIOSMotion.controlSwap) {
                 isPaused = false
                 isLoading = false
+                activeDownloadProjectURL = nil
             }
             if let antiSleepActivity {
                 ProcessInfo.processInfo.endActivity(antiSleepActivity)
                 self.antiSleepActivity = nil
+            }
+            // Chain into the queue: when this download ends on its own (done or
+            // failed), kick off the next queued item. A user cancel stops the
+            // whole queue — it shouldn't silently roll on to the next link.
+            if !userInitiatedCancellation, !queue.isEmpty {
+                let nextDelay: Duration = .milliseconds(800)
+                Task { [weak self] in
+                    try? await Task.sleep(for: nextDelay)
+                    self?.startNextQueuedItemIfNeeded()
+                }
             }
         }
 
@@ -220,23 +421,20 @@ final class DownloadViewModel: NSObject, ObservableObject {
             activeRecoveryState = state
 
             let reporter: ProgressHandler = { status, fraction in
-                let caption = status.uppercased()
                 withAnimation(SoftIOSMotion.progress) {
-                    self.progressCaption = caption
+                    self.progressCaption = status
                     self.progressFraction = min(1, max(0, fraction))
-                    self.statusText = self.isPaused ? "PAUSED" : caption
+                    self.statusText = self.isPaused ? "Paused" : status
                 }
             }
 
-            try await runPersistedDownload(state: state, progress: reporter, finalDestination: destinationURL)
-            reporter("Moving files to destination...", 0.98)
-            let materializedURLs = try materializeDownloadedItems(from: state.sessionDirectoryURL, into: destinationURL)
+            let materializedURLs = try await runPersistedDownload(state: state, progress: reporter, finalDestination: destinationURL)
             reporter("Completed", 1.0)
             let resultPath = materializedURLs.count == 1 ? materializedURLs[0].path : destinationURL.path
             withAnimation(SoftIOSMotion.morph) {
                 progressFraction = 1
-                progressCaption = "COMPLETED"
-                statusText = "DONE: \(resultPath)"
+                progressCaption = "Completed"
+                statusText = "Done: \(resultPath)"
                 downloadSpeedText = "--"
             }
             smoothedDownloadSpeedBytesPerSecond = nil
@@ -254,7 +452,7 @@ final class DownloadViewModel: NSObject, ObservableObject {
                 lastSpeedTextUpdateAt = nil
                 diagnostics.log("DOWNLOAD CANCELLED BY USER")
             } else {
-                setError("DOWNLOAD WAS CANCELLED BEFORE COMPLETION.")
+                setError("Download was cancelled before completion.")
             }
         } catch let error as URLError where error.code == .cancelled {
             if userInitiatedCancellation {
@@ -266,10 +464,10 @@ final class DownloadViewModel: NSObject, ObservableObject {
                 lastSpeedTextUpdateAt = nil
                 diagnostics.log("NETWORK REQUEST CANCELLED BY USER")
             } else {
-                setError("NETWORK REQUEST WAS CANCELLED.")
+                setError("Network request was cancelled.")
             }
         } catch {
-            setError(error.localizedDescription.uppercased())
+            setError(error.localizedDescription)
         }
     }
 
@@ -281,14 +479,25 @@ final class DownloadViewModel: NSObject, ObservableObject {
             return existing
         }
 
+        let persistedSource: PersistedDownloadSource = {
+            switch source {
+            case .dropbox: return .dropbox
+            case .googleDrive: return .googleDrive
+            case .directHost(let host): return PersistedDownloadSource(directHost: host)
+            }
+        }()
+
         let sessionDirectory = try makePersistentSessionDirectory()
         var state = PersistedDownloadState(
-            source: source == .dropbox ? .dropbox : .googleDrive,
+            id: UUID().uuidString,
+            source: persistedSource,
             originalLink: originalURL.absoluteString,
             sessionDirectoryPath: sessionDirectory.path,
+            finalDestinationPath: destinationStore.selectedURL?.path,
             items: [],
             currentIndex: 0,
             resumeDataBase64: nil,
+            topLevelDestinationPaths: nil,
             updatedAt: Date()
         )
 
@@ -302,6 +511,26 @@ final class DownloadViewModel: NSObject, ObservableObject {
                 throw DownloaderError.googleDriveAuthorizationRequired
             }
             state.items = try await GoogleDriveDownloader(apiKey: key, accessToken: accessToken).buildDownloadPlan(url: originalURL)
+        case .directHost(let host):
+            if host == .oneDrive,
+               let sharePointItems = try await SharePointAnonymousDownloader().buildPlanIfPossible(url: originalURL),
+               !sharePointItems.isEmpty {
+                state.items = sharePointItems
+                break
+            }
+
+            let plan = try await DirectHostResolver.resolve(host: host, url: originalURL)
+            guard let primary = (host == .oneDrive ? originalURL : plan.candidates.first?.url) else {
+                throw DownloaderError.processFailed("\(host.displayName.uppercased()) LINK COULD NOT BE RESOLVED.")
+            }
+            state.items = [
+                DownloadPlanItem(
+                    sourceURLString: primary.absoluteString,
+                    relativeDestinationPath: plan.suggestedFilename,
+                    displayName: (plan.suggestedFilename ?? host.displayName).uppercased(),
+                    headers: nil
+                )
+            ]
         }
 
         recoveryStore.save(state)
@@ -309,13 +538,15 @@ final class DownloadViewModel: NSObject, ObservableObject {
     }
 
     private func isReusableRecoveryState(_ state: PersistedDownloadState, for source: LinkSource) -> Bool {
-        guard state.source == (source == .dropbox ? .dropbox : .googleDrive) else { return false }
-
         switch source {
         case .dropbox:
-            return true
+            return state.source == .dropbox
         case .googleDrive:
-            return state.items.allSatisfy { !$0.sourceURLString.isEmpty }
+            return state.source == .googleDrive && state.items.allSatisfy { !$0.sourceURLString.isEmpty }
+        case .directHost:
+            // Direct download URLs (pCloud/MediaFire/OneDrive) are short-lived
+            // and may have expired by the time we recover, so always re-resolve.
+            return false
         }
     }
 
@@ -323,16 +554,32 @@ final class DownloadViewModel: NSObject, ObservableObject {
         state: PersistedDownloadState,
         progress: @escaping ProgressHandler,
         finalDestination: URL
-    ) async throws {
+    ) async throws -> [URL] {
         var state = state
+        var materializedURLs: [URL] = []
+        var topLevelDestinationPaths = state.topLevelDestinationPaths ?? [:]
 
         guard !state.items.isEmpty else {
             try fileManager.createDirectory(at: state.sessionDirectoryURL, withIntermediateDirectories: true)
-            return
+            return []
         }
 
         try fileManager.createDirectory(at: state.sessionDirectoryURL, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: finalDestination, withIntermediateDirectories: true)
 
+        // Plan-wide total in bytes, known only if every file reported a size.
+        // (Dropbox files and exported Google-Apps docs don't, so it can be nil.)
+        let planKnownTotalBytes: Int64? = state.items.allSatisfy { ($0.byteSize ?? 0) > 0 }
+            ? state.items.reduce(0) { $0 + ($1.byteSize ?? 0) }
+            : nil
+        // Real bytes from files already finished in this run.
+        var completedBytes: Int64 = 0
+        // Resumed sessions start partway through; count earlier files as done.
+        for earlier in 0..<min(state.currentIndex, state.items.count) {
+            completedBytes += state.items[earlier].byteSize ?? 0
+        }
+
+        let resumeStartIndex = state.currentIndex
         for index in state.currentIndex..<state.items.count {
             try Task.checkCancellation()
 
@@ -340,6 +587,20 @@ final class DownloadViewModel: NSObject, ObservableObject {
             let itemRequest = try await makeRequest(for: item, source: state.source)
             let fileBaseProgress = Double(index) / Double(max(state.items.count, 1))
             let fileSlice = 1.0 / Double(max(state.items.count, 1))
+            let plannedDestination: URL?
+            if state.source == .googleDrive {
+                guard let relativePath = item.relativeDestinationPath else {
+                    throw DownloaderError.badServerResponse
+                }
+                plannedDestination = finalItemDestination(
+                    for: relativePath,
+                    into: finalDestination,
+                    topLevelDestinationPaths: &topLevelDestinationPaths
+                )
+                state.topLevelDestinationPaths = topLevelDestinationPaths
+            } else {
+                plannedDestination = nil
+            }
 
             state.currentIndex = index
             state.updatedAt = Date()
@@ -347,7 +608,16 @@ final class DownloadViewModel: NSObject, ObservableObject {
             activeRecoveryState = state
 
             let displayName = item.displayName
-            let activeResumeData = (index == state.currentIndex) ? state.resumeData : nil
+            // Resume data only applies to the exact item it was captured for —
+            // the first item of a resumed session. Every later item starts fresh.
+            let activeResumeData = (index == resumeStartIndex) ? state.resumeData : nil
+
+            // Google Drive streams to a persistent partial file in the session
+            // directory, keyed by index, so a dropped connection (or even an app
+            // restart) resumes from disk instead of restarting from zero.
+            let partialFileURL: URL? = state.source == .googleDrive
+                ? state.sessionDirectoryURL.appendingPathComponent("part-\(index).download")
+                : nil
 
             let (tempFile, response) = try await downloadValidatedItem(
                 source: state.source,
@@ -358,19 +628,52 @@ final class DownloadViewModel: NSObject, ObservableObject {
                 totalCount: state.items.count,
                 fileBaseProgress: fileBaseProgress,
                 fileSlice: fileSlice,
+                priorCompletedBytes: completedBytes,
+                planKnownTotalBytes: planKnownTotalBytes,
+                partialFileURL: partialFileURL,
+                knownFileBytes: item.byteSize,
                 progress: progress
             )
+
+            // Fold this file's real size into the running completed total so the
+            // aggregate "downloaded / total" stays accurate across files.
+            completedBytes += item.byteSize ?? fileSizeOnDisk(tempFile)
 
             switch state.source {
             case .dropbox:
                 try DropboxDownloader().finalizeDownload(tempFile: tempFile, response: response, into: state.sessionDirectoryURL)
+                materializedURLs.append(contentsOf: try materializeDownloadedItems(from: state.sessionDirectoryURL, into: finalDestination))
                 progress("Dropbox download completed", min(0.99, fileBaseProgress + fileSlice))
             case .googleDrive:
-                guard let relativePath = item.relativeDestinationPath else {
+                guard let destination = plannedDestination else {
                     throw DownloaderError.badServerResponse
                 }
-                let destination = state.sessionDirectoryURL.appendingPathComponent(relativePath)
                 try GoogleDriveDownloader(apiKey: GoogleDriveAPIKeyStorage.current()).finalizeDownload(tempFile: tempFile, to: destination)
+                materializedURLs.append(destination)
+            case .oneDrive:
+                if let relativePath = item.relativeDestinationPath, !relativePath.isEmpty {
+                    let destination = state.sessionDirectoryURL.appendingPathComponent(relativePath)
+                    try GoogleDriveDownloader(apiKey: GoogleDriveAPIKeyStorage.current()).finalizeDownload(tempFile: tempFile, to: destination)
+                } else {
+                    try DirectHostDownloader(host: .oneDrive).finalizeDownload(
+                        tempFile: tempFile,
+                        response: response,
+                        suggestedFilename: item.relativeDestinationPath,
+                        into: state.sessionDirectoryURL
+                    )
+                }
+                materializedURLs.append(contentsOf: try materializeDownloadedItems(from: state.sessionDirectoryURL, into: finalDestination))
+                progress("OneDrive download completed", min(0.99, fileBaseProgress + fileSlice))
+            case .pcloud, .mediafire:
+                guard let host = state.source.directHost else { throw DownloaderError.badServerResponse }
+                try DirectHostDownloader(host: host).finalizeDownload(
+                    tempFile: tempFile,
+                    response: response,
+                    suggestedFilename: item.relativeDestinationPath,
+                    into: state.sessionDirectoryURL
+                )
+                materializedURLs.append(contentsOf: try materializeDownloadedItems(from: state.sessionDirectoryURL, into: finalDestination))
+                progress("\(host.displayName) download completed", min(0.99, fileBaseProgress + fileSlice))
             }
 
             state.resumeDataBase64 = nil
@@ -379,11 +682,13 @@ final class DownloadViewModel: NSObject, ObservableObject {
             recoveryStore.save(state)
             activeRecoveryState = state
         }
+
+        return materializedURLs
     }
 
     private func makeRequest(for item: DownloadPlanItem, source: PersistedDownloadSource) async throws -> URLRequest {
         switch source {
-        case .dropbox:
+        case .dropbox, .oneDrive, .pcloud, .mediafire:
             return item.request
         case .googleDrive:
             var request = URLRequest(url: try makeGoogleDriveSourceURL(from: item.sourceURL))
@@ -434,23 +739,63 @@ final class DownloadViewModel: NSObject, ObservableObject {
                     sourceURLString: checkpoint.sourceURL.absoluteString,
                     relativeDestinationPath: currentItem.relativeDestinationPath,
                     displayName: currentItem.displayName,
-                    headers: currentItem.headers
+                    headers: currentItem.headers,
+                    byteSize: currentItem.byteSize
                 )
             }
             state.resumeDataBase64 = checkpoint.resumeData?.base64EncodedString()
             state.updatedAt = Date()
             recoveryStore.save(state)
+            refreshRecoverableSessions()
         } else {
             recoveryStore.save(state)
+            refreshRecoverableSessions()
         }
     }
 
     private func clearRecoveryState(removeSessionDirectory: Bool = false) {
-        if removeSessionDirectory, let activeRecoveryState {
-            try? fileManager.removeItem(at: activeRecoveryState.sessionDirectoryURL)
+        if let activeRecoveryState {
+            if removeSessionDirectory {
+                try? fileManager.removeItem(at: activeRecoveryState.sessionDirectoryURL)
+            }
+            recoveryStore.clear(activeRecoveryState)
         }
         activeRecoveryState = nil
-        recoveryStore.clear()
+        refreshRecoverableSessions()
+    }
+
+    /// Removes leftover staging directories under `.raw-downloader-sessions`
+    /// that no live recovery session points at. These are orphans from a
+    /// download that was interrupted (crash, force-quit, expired session) and
+    /// would otherwise leave files sitting in the hidden folder inside the
+    /// user's destination.
+    private func sweepOrphanedStagingDirectories() {
+        let liveSessionPaths = Set(recoverableSessions.map { $0.sessionDirectoryURL.standardizedFileURL.path })
+
+        var roots: [URL] = []
+        if let destination = destinationStore.selectedURL {
+            roots.append(destination.appendingPathComponent(".raw-downloader-sessions", isDirectory: true))
+        }
+        if let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            roots.append(appSupport.appendingPathComponent(".raw-downloader-sessions", isDirectory: true))
+        }
+
+        for root in roots {
+            guard let children = try? fileManager.contentsOfDirectory(
+                at: root,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: []
+            ) else { continue }
+
+            for child in children where !liveSessionPaths.contains(child.standardizedFileURL.path) {
+                try? fileManager.removeItem(at: child)
+            }
+
+            // Drop the hidden root entirely if it ended up empty.
+            if let remaining = try? fileManager.contentsOfDirectory(atPath: root.path), remaining.isEmpty {
+                try? fileManager.removeItem(at: root)
+            }
+        }
     }
 
     private func makePersistentSessionDirectory() throws -> URL {
@@ -470,6 +815,11 @@ final class DownloadViewModel: NSObject, ObservableObject {
         Task { await prepareRecoveryCheckpointForTermination() }
     }
 
+    @objc
+    private func handleDownloadSessionSettingsChanged() {
+        refreshRecoverableSessions()
+    }
+
     private func materializeDownloadedItems(from stagingDirectory: URL, into destinationDirectory: URL) throws -> [URL] {
         try fileManager.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
         let items = try fileManager.contentsOfDirectory(
@@ -480,11 +830,51 @@ final class DownloadViewModel: NSObject, ObservableObject {
 
         var result: [URL] = []
         for item in items {
+            // Skip in-progress partial files left by the Range downloader.
+            if item.lastPathComponent.hasPrefix("part-"), item.pathExtension == "download" { continue }
             let destination = uniqueDestinationURL(for: destinationDirectory.appendingPathComponent(item.lastPathComponent))
             try fileManager.moveItem(at: item, to: destination)
             result.append(destination)
         }
         return result
+    }
+
+    private func finalItemDestination(
+        for relativePath: String,
+        into destinationDirectory: URL,
+        topLevelDestinationPaths: inout [String: String]
+    ) -> URL {
+        let components = relativePath
+            .split(separator: "/", omittingEmptySubsequences: true)
+            .map(String.init)
+
+        guard let firstComponent = components.first else {
+            return uniqueDestinationURL(for: destinationDirectory.appendingPathComponent("download"))
+        }
+
+        if components.count == 1 {
+            if let destinationPath = topLevelDestinationPaths[firstComponent] {
+                return URL(fileURLWithPath: destinationPath)
+            }
+
+            let destination = uniqueDestinationURL(for: destinationDirectory.appendingPathComponent(firstComponent))
+            topLevelDestinationPaths[firstComponent] = destination.path
+            return destination
+        }
+
+        let rootDestination = if let destinationPath = topLevelDestinationPaths[firstComponent] {
+            URL(fileURLWithPath: destinationPath, isDirectory: true)
+        } else {
+            {
+                let destination = uniqueDestinationURL(for: destinationDirectory.appendingPathComponent(firstComponent, isDirectory: true))
+                topLevelDestinationPaths[firstComponent] = destination.path
+                return destination
+            }()
+        }
+
+        return components.dropFirst().reduce(rootDestination) { partialURL, component in
+            partialURL.appendingPathComponent(component)
+        }
     }
 
     private func uniqueDestinationURL(for url: URL) -> URL {
@@ -505,11 +895,16 @@ final class DownloadViewModel: NSObject, ObservableObject {
         }
     }
 
+    private func fileSizeOnDisk(_ url: URL) -> Int64 {
+        let size = try? fileManager.attributesOfItem(atPath: url.path)[.size] as? Int64
+        return size.flatMap { $0 } ?? 0
+    }
+
     private func setError(_ text: String) {
         withAnimation(SoftIOSMotion.modal) {
             hasError = true
             statusText = text
-            progressCaption = "ERROR"
+            progressCaption = "Error"
             progressFraction = 0
             errorMessage = text
         }
@@ -532,14 +927,44 @@ final class DownloadViewModel: NSObject, ObservableObject {
         totalCount: Int,
         fileBaseProgress: Double,
         fileSlice: Double,
+        priorCompletedBytes: Int64,
+        planKnownTotalBytes: Int64?,
+        partialFileURL: URL? = nil,
+        knownFileBytes: Int64? = nil,
         progress: @escaping ProgressHandler
     ) async throws -> (URL, URLResponse) {
-        let progressHandler: @Sendable @MainActor (Double, Double?) -> Void = { fileFraction, speedBytesPerSecond in
-            let merged = min(0.99, fileBaseProgress + (fileSlice * fileFraction))
+        // Keep per-item progress monotonic: a resume reports the *remaining* file
+        // size as the expected total, and a fresh retry/fallback restarts the
+        // fraction near 0. Without clamping, the bar visibly jumps backward.
+        // We never report less than the highest fraction already shown.
+        var highestFractionForItem = 0.0
+        var highestBytesWrittenForItem: Int64 = 0
+        // No verbose status word — the bar already shows what's happening.
+        // For multi-file plans show just the file counter; otherwise nothing.
+        let caption = totalCount > 1 ? "\(index + 1)/\(totalCount)" : ""
+        let progressHandler: DownloadProgressCallback = { fileFraction, speedBytesPerSecond, bytesWritten, bytesExpected in
+            highestFractionForItem = DownloadRetryPolicy.monotonicFraction(latest: fileFraction, runningMax: highestFractionForItem)
+            // Keep the byte counter monotonic for the same reason as the bar.
+            highestBytesWrittenForItem = max(highestBytesWrittenForItem, bytesWritten)
+            let merged = DownloadRetryPolicy.mergedProgress(
+                fileBaseProgress: fileBaseProgress,
+                fileSlice: fileSlice,
+                fileFraction: highestFractionForItem
+            )
             if let speedBytesPerSecond {
                 self.updateDisplayedSpeed(using: speedBytesPerSecond)
             }
-            progress("Downloading \(index + 1)/\(totalCount): \(displayName)", merged)
+            // Aggregate over the whole plan: bytes from finished files plus what
+            // this file has written, against the plan total (or a running
+            // estimate when not every file's size is known up front).
+            let aggregate = DownloadFormatting.aggregateBytes(
+                completedBytes: priorCompletedBytes,
+                currentFileWritten: highestBytesWrittenForItem,
+                currentFileExpected: bytesExpected,
+                planKnownTotalBytes: planKnownTotalBytes
+            )
+            self.updateByteProgress(written: aggregate.written, expected: aggregate.expected)
+            progress(caption, merged)
         }
 
         let requestsToTry: [URLRequest] = {
@@ -548,6 +973,9 @@ final class DownloadViewModel: NSObject, ObservableObject {
                     .fallbackDownloadURLs(from: sourceRequest.url!)
                     .map { URLRequest(url: $0) }
                 return [sourceRequest] + fallbackRequests
+            }
+            if source == .oneDrive, let url = sourceRequest.url {
+                return DirectHostResolver.oneDriveDownloadCandidates(from: url).map { URLRequest(url: $0) }
             }
             return [sourceRequest]
         }()
@@ -561,7 +989,9 @@ final class DownloadViewModel: NSObject, ObservableObject {
                     request: requestToTry,
                     resumeData: source == .googleDrive ? nil : (attemptIndex == 0 ? resumeData : nil),
                     progressHandler: progressHandler,
-                    displayName: displayName
+                    displayName: displayName,
+                    partialFileURL: source == .googleDrive ? partialFileURL : nil,
+                    knownFileBytes: knownFileBytes
                 )
             } catch let error as DownloaderError {
                 diagnostics.log("ATTEMPT FAILED FOR \(displayName): \(error.localizedDescription)")
@@ -574,7 +1004,16 @@ final class DownloadViewModel: NSObject, ObservableObject {
                     continue
                 }
 
+                if attemptIndex < requestsToTry.count - 1 {
+                    // Another candidate URL remains (e.g. OneDrive alternate).
+                    lastError = error
+                    continue
+                }
+
                 if source == .dropbox, shouldPresentAsUnavailable(error) {
+                    throw DownloaderError.fileCannotBeDownloaded(displayName)
+                }
+                if shouldPresentAsUnavailable(error) {
                     throw DownloaderError.fileCannotBeDownloaded(displayName)
                 }
                 throw error
@@ -584,8 +1023,7 @@ final class DownloadViewModel: NSObject, ObservableObject {
             }
         }
 
-        if source == .dropbox,
-           let lastError = lastError as? DownloaderError,
+        if let lastError = lastError as? DownloaderError,
            shouldPresentAsUnavailable(lastError) {
             throw DownloaderError.fileCannotBeDownloaded(displayName)
         }
@@ -610,11 +1048,20 @@ final class DownloadViewModel: NSObject, ObservableObject {
         source: PersistedDownloadSource,
         request: URLRequest,
         resumeData: Data?,
-        progressHandler: @escaping @Sendable @MainActor (Double, Double?) -> Void,
-        displayName: String
+        progressHandler: @escaping DownloadProgressCallback,
+        displayName: String,
+        partialFileURL: URL? = nil,
+        knownFileBytes: Int64? = nil
     ) async throws -> (URL, URLResponse) {
-        let maxAttempts = 5
+        // On a very slow / unstable link a handful of retries isn't enough; a
+        // single file can drop the connection many times. Resume data means each
+        // retry continues rather than restarts, so a high cap is cheap.
+        let maxAttempts = DownloadRetryPolicy.maxAttempts
         var nextResumeData = resumeData
+        // Remember the most recent transient failure so that if every attempt is
+        // exhausted we can report *why* (e.g. "could not connect"), not a vague
+        // "file cannot be downloaded".
+        var lastTransientError: Error?
 
         for attempt in 1...maxAttempts {
             if userInitiatedCancellation || Task.isCancelled { throw CancellationError() }
@@ -626,14 +1073,38 @@ final class DownloadViewModel: NSObject, ObservableObject {
                     requestForAttempt = request
                 }
 
-                let result = try await performDownload(
-                    request: requestForAttempt,
-                    resumeData: nextResumeData,
-                    control: downloadControl,
-                    progress: progressHandler
-                )
+                let result: (URL, URLResponse)
+                if let partialFileURL {
+                    // Google Drive: stream to a persistent partial file and
+                    // resume via HTTP Range so a drop continues from disk.
+                    result = try await performResumableRangeDownload(
+                        request: requestForAttempt,
+                        partialFileURL: partialFileURL,
+                        knownTotalBytes: knownFileBytes,
+                        control: downloadControl,
+                        progress: progressHandler
+                    )
+                } else {
+                    result = try await performDownload(
+                        request: requestForAttempt,
+                        resumeData: nextResumeData,
+                        control: downloadControl,
+                        progress: progressHandler
+                    )
+                }
                 try validateDownloadedPayload(tempFile: result.0, response: result.1, source: source)
                 return result
+            } catch let wrapped as ResumableRangeError {
+                // Mid-stream drop of a Range download; the partial file holds
+                // bytesSaved, so the next attempt continues from there.
+                if userInitiatedCancellation || Task.isCancelled { throw CancellationError() }
+                let underlying = wrapped.underlying
+                lastTransientError = underlying
+                let retryable = (underlying as? URLError).map(shouldRetry) ?? true
+                guard attempt < maxAttempts, retryable else { throw underlying }
+                diagnostics.log("RESUME \(attempt + 1)/\(maxAttempts) FOR \(displayName) @ \(wrapped.bytesSaved) BYTES (\(underlying.localizedDescription))")
+                try? await Task.sleep(for: .seconds(backoffSeconds(for: attempt)))
+                continue
             } catch let wrapped as ResumableDownloadError {
                 // A user-initiated cancel also surfaces resumeData; never retry it.
                 if userInitiatedCancellation || Task.isCancelled {
@@ -643,28 +1114,45 @@ final class DownloadViewModel: NSObject, ObservableObject {
                 // Keep the resumeData so the next attempt continues from there
                 // instead of re-downloading the whole file.
                 let underlying = wrapped.underlying
+                lastTransientError = underlying
                 let retryable = (underlying as? URLError).map(shouldRetry) ?? true
                 guard attempt < maxAttempts, retryable else { throw underlying }
                 nextResumeData = wrapped.resumeData
-                diagnostics.log("RESUME \(attempt + 1)/\(maxAttempts) FOR \(displayName)")
-                try? await Task.sleep(for: .seconds(attempt))
+                diagnostics.log("RESUME \(attempt + 1)/\(maxAttempts) FOR \(displayName) (\(underlying.localizedDescription))")
+                try? await Task.sleep(for: .seconds(backoffSeconds(for: attempt)))
                 continue
             } catch let error as DownloaderError {
                 if userInitiatedCancellation || Task.isCancelled { throw CancellationError() }
+                lastTransientError = error
                 let retryable = shouldRetry(error) || (source == .googleDrive && isGoogleAuthorizationFailure(error))
                 guard attempt < maxAttempts, retryable else { throw error }
-                diagnostics.log("RETRY \(attempt + 1)/\(maxAttempts) FOR \(displayName)")
+                diagnostics.log("RETRY \(attempt + 1)/\(maxAttempts) FOR \(displayName) (\(error.localizedDescription))")
             } catch let error as URLError {
                 if userInitiatedCancellation || Task.isCancelled { throw CancellationError() }
+                lastTransientError = error
                 guard attempt < maxAttempts, shouldRetry(error) else { throw error }
-                diagnostics.log("RETRY \(attempt + 1)/\(maxAttempts) FOR \(displayName)")
+                diagnostics.log("RETRY \(attempt + 1)/\(maxAttempts) FOR \(displayName) (\(error.localizedDescription))")
             }
 
             nextResumeData = nil
-            try? await Task.sleep(for: .seconds(attempt))
+            try? await Task.sleep(for: .seconds(backoffSeconds(for: attempt)))
         }
 
+        // Every attempt exhausted — surface the real reason, not a vague message.
+        let minutes = DownloadRetryPolicy.totalRetryWindowSeconds / 60
+        if let lastTransientError {
+            let reason = lastTransientError.localizedDescription
+            throw DownloaderError.processFailed(
+                "Couldn’t finish “\(displayName)” after \(maxAttempts) attempts over ~\(minutes) min. Last error: \(reason)"
+            )
+        }
         throw DownloaderError.fileCannotBeDownloaded(displayName)
+    }
+
+    /// Exponential-ish backoff capped so a high retry count doesn't make the
+    /// user wait minutes between attempts on a slow link.
+    private func backoffSeconds(for attempt: Int) -> Int {
+        DownloadRetryPolicy.backoffSeconds(for: attempt)
     }
 
     private func refreshedGoogleDriveRequest(from request: URLRequest) async -> URLRequest {
@@ -680,7 +1168,7 @@ final class DownloadViewModel: NSObject, ObservableObject {
     private func shouldRetry(_ error: DownloaderError) -> Bool {
         switch error {
         case .httpStatus(let statusCode, _):
-            return statusCode == 408 || statusCode == 425 || statusCode == 429 || (500...599).contains(statusCode)
+            return DownloadRetryPolicy.shouldRetry(httpStatus: statusCode)
         default:
             return false
         }
@@ -692,14 +1180,11 @@ final class DownloadViewModel: NSObject, ObservableObject {
     }
 
     private func shouldRetry(_ error: URLError) -> Bool {
-        switch error.code {
-        case .cancelled:
-            return !Task.isCancelled
-        case .timedOut, .networkConnectionLost, .notConnectedToInternet, .cannotConnectToHost, .dnsLookupFailed, .resourceUnavailable:
-            return true
-        default:
-            return false
-        }
+        DownloadRetryPolicy.shouldRetry(
+            urlErrorCode: error.code,
+            taskIsCancelled: Task.isCancelled,
+            userInitiatedCancellation: userInitiatedCancellation
+        )
     }
 
     private func shouldPresentAsUnavailable(_ error: DownloaderError) -> Bool {
@@ -719,6 +1204,7 @@ final class DownloadViewModel: NSObject, ObservableObject {
         if host.contains("dropbox.com") { return true }
         if host.contains("drive.google.com") || host.contains("docs.google.com") { return true }
         if host.contains("youtube.com") || host.contains("youtu.be") { return true }
+        if DirectHost.allCases.contains(where: { $0.matches(host: host) }) { return true }
         return false
     }
 
@@ -726,14 +1212,60 @@ final class DownloadViewModel: NSObject, ObservableObject {
         linkText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func recoverableStateFromDisk() -> PersistedDownloadState? {
-        guard var state = recoveryStore.load() else { return nil }
-        state = migrateRecoverySessionIfNeeded(state)
-        guard fileManager.fileExists(atPath: state.sessionDirectoryPath) else {
-            recoveryStore.clear()
-            return nil
+    private func refreshRecoverableSessions() {
+        recoveryStore.pruneExpiredSessions(removeSessionDirectories: true)
+        var result: [PersistedDownloadState] = []
+
+        for storedState in recoveryStore.loadAll() {
+            var state = migrateRecoverySessionIfNeeded(storedState)
+            if state.id == nil {
+                state.id = UUID().uuidString
+                recoveryStore.save(state)
+            }
+
+            guard fileManager.fileExists(atPath: state.sessionDirectoryPath) else {
+                recoveryStore.clear(state)
+                continue
+            }
+
+            result.append(state)
         }
-        return state
+
+        // Collapse duplicate sessions for the same link: keep only the one with
+        // the most already downloaded, delete the rest (and their partial files)
+        // so the user isn't offered three half-finished copies of one download.
+        result = dedupedKeepingMostProgress(result)
+
+        recoverableSessions = result.sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    /// For each distinct source link, keeps the session that has the most bytes
+    /// on disk and discards the others (removing their session directories).
+    private func dedupedKeepingMostProgress(_ sessions: [PersistedDownloadState]) -> [PersistedDownloadState] {
+        var bestByLink: [String: PersistedDownloadState] = [:]
+        var losers: [PersistedDownloadState] = []
+
+        for session in sessions {
+            if let existing = bestByLink[session.originalLink] {
+                let existingBytes = existing.downloadedBytesOnDisk
+                let candidateBytes = session.downloadedBytesOnDisk
+                if candidateBytes > existingBytes {
+                    losers.append(existing)
+                    bestByLink[session.originalLink] = session
+                } else {
+                    losers.append(session)
+                }
+            } else {
+                bestByLink[session.originalLink] = session
+            }
+        }
+
+        for loser in losers {
+            try? fileManager.removeItem(at: loser.sessionDirectoryURL)
+            recoveryStore.clear(loser)
+        }
+
+        return Array(bestByLink.values)
     }
 
     private func migrateRecoverySessionIfNeeded(_ state: PersistedDownloadState) -> PersistedDownloadState {
@@ -798,6 +1330,89 @@ final class DownloadViewModel: NSObject, ObservableObject {
         downloadSpeedText = formattedSpeed(smoothed)
         lastSpeedTextUpdateAt = now
     }
+
+    private func updateByteProgress(written: Int64, expected: Int64?) {
+        // Always keep the raw figures fresh — the ETA calc depends on them.
+        latestBytesWritten = written
+        latestBytesExpected = expected
+        refreshRemainingTime()
+
+        // But throttle the *visible* "downloaded" text so it doesn't churn many
+        // times a second and make the row jitter. Update at most ~once a second.
+        let now = Date()
+        let minUpdateInterval: TimeInterval = 0.8
+        let isComplete = expected.map { written >= $0 } ?? false
+        if let lastSizeTextUpdateAt,
+           now.timeIntervalSince(lastSizeTextUpdateAt) < minUpdateInterval,
+           !isComplete {
+            return
+        }
+        lastSizeTextUpdateAt = now
+
+        let writtenText = byteCountFormatter.string(fromByteCount: max(0, written))
+        let totalText = (expected.map { $0 > 0 } == true) ? byteCountFormatter.string(fromByteCount: expected!) : "--"
+        if downloadedSizeText != writtenText { downloadedSizeText = writtenText }
+        if totalSizeText != totalText { totalSizeText = totalText }
+    }
+
+    private func startETATimer() {
+        remainingTimeText = "--"
+        latestBytesWritten = 0
+        latestBytesExpected = nil
+        smoothedRemainingSeconds = nil
+        lastRemainingTextUpdateAt = nil
+        lastSizeTextUpdateAt = nil
+        etaTimer?.invalidate()
+        // Refresh the countdown once a second so it ticks down smoothly even
+        // when byte callbacks are sparse on a slow link.
+        let timer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.refreshRemainingTime() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        etaTimer = timer
+    }
+
+    private func stopETATimer() {
+        etaTimer?.invalidate()
+        etaTimer = nil
+    }
+
+    private func refreshRemainingTime() {
+        guard !isPaused else { return }
+
+        guard let rawSeconds = DownloadFormatting.rawRemainingSeconds(
+            bytesWritten: latestBytesWritten,
+            bytesExpected: latestBytesExpected,
+            bytesPerSecond: smoothedDownloadSpeedBytesPerSecond
+        ) else {
+            remainingTimeText = "--"
+            return
+        }
+
+        if rawSeconds == 0 {
+            smoothedRemainingSeconds = 0
+            remainingTimeText = "00:00"
+            return
+        }
+
+        // Smooth the estimate so it glides rather than jumping each second.
+        smoothedRemainingSeconds = DownloadFormatting.smoothRemainingSeconds(
+            latest: rawSeconds,
+            previous: smoothedRemainingSeconds
+        )
+
+        // Throttle the visible text the same way the speed readout is throttled,
+        // so the digits don't churn faster than the eye can read.
+        let now = Date()
+        let minUpdateInterval: TimeInterval = 0.9
+        if let lastRemainingTextUpdateAt, now.timeIntervalSince(lastRemainingTextUpdateAt) < minUpdateInterval {
+            return
+        }
+
+        guard let smoothed = smoothedRemainingSeconds else { return }
+        remainingTimeText = DownloadFormatting.formatRemaining(seconds: smoothed)
+        lastRemainingTextUpdateAt = now
+    }
 }
 
 enum DownloaderError: LocalizedError {
@@ -813,22 +1428,22 @@ enum DownloaderError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .unsupportedLink:
-            return "ONLY GOOGLE DRIVE AND DROPBOX LINKS ARE SUPPORTED."
+            return "Supported links: Google Drive, Dropbox, OneDrive, pCloud, MediaFire."
         case .googleAPIKeyRequired:
-            return "SET GOOGLE API KEY FROM TOP MENU: GOOGLE DRIVE -> SET API KEY..."
+            return "Set a Google API key from the top menu: Google Drive → Set API Key…"
         case .googleDriveAuthorizationRequired:
-            return "SIGN IN TO GOOGLE DRIVE OR SET API KEY FROM THE GOOGLE DRIVE MENU."
+            return "Sign in to Google Drive or set an API key from the Google Drive menu."
         case .invalidGoogleDriveID:
-            return "FAILED TO EXTRACT GOOGLE DRIVE FILE/FOLDER ID FROM THE LINK."
+            return "Couldn’t extract the Google Drive file or folder ID from the link."
         case .badServerResponse:
-            return "SERVER RETURNED AN UNEXPECTED RESPONSE."
+            return "The server returned an unexpected response."
         case .httpStatus(let statusCode, let bodySnippet):
             if let bodySnippet, !bodySnippet.isEmpty {
-                return "DOWNLOAD ERROR \(statusCode): \(bodySnippet)"
+                return "Download error \(statusCode): \(bodySnippet)"
             }
-            return "DOWNLOAD ERROR \(statusCode)."
+            return "Download error \(statusCode)."
         case .fileCannotBeDownloaded(let filename):
-            return "FILE '\(filename)' CANNOT BE DOWNLOADED."
+            return "“\(filename)” can’t be downloaded."
         case .processFailed(let message):
             return message
         }
@@ -838,6 +1453,7 @@ enum DownloaderError: LocalizedError {
 enum LinkSource {
     case googleDrive
     case dropbox
+    case directHost(DirectHost)
 }
 
 enum LinkDetector {
@@ -848,6 +1464,9 @@ enum LinkDetector {
         }
         if host.contains("drive.google.com") || host.contains("docs.google.com") {
             return .googleDrive
+        }
+        if let directHost = DirectHost.allCases.first(where: { $0.matches(host: host) }) {
+            return .directHost(directHost)
         }
         throw DownloaderError.unsupportedLink
     }
@@ -911,11 +1530,11 @@ enum GoogleDriveAPIKeyStorage {
 
     static func currentMaskedValue() -> String {
         let value = current()
-        guard !value.isEmpty else { return "API KEY: NOT SET" }
+        guard !value.isEmpty else { return "API key: not set" }
         if value.count <= 8 {
-            return "API KEY: \(value)"
+            return "API key: \(value)"
         }
-        return "API KEY: \(value.prefix(4))...\(value.suffix(4))"
+        return "API key: \(value.prefix(4))…\(value.suffix(4))"
     }
 }
 
@@ -951,6 +1570,43 @@ final class DownloadDestinationStore {
         selectedURL = resolvedURL
         displayPath = resolvedURL.path
         startAccessingIfPossible(resolvedURL)
+    }
+
+    /// Security-scoped bookmark for the current folder, so a queued download can
+    /// reopen the exact same destination later even after the selection changes.
+    var currentBookmark: Data? {
+        UserDefaults.standard.data(forKey: defaultsKey)
+    }
+
+    /// Re-selects a destination from a previously captured bookmark (used when a
+    /// queued item starts and needs its own saved folder, not the current one).
+    @discardableResult
+    func setFromBookmark(_ bookmark: Data) -> Bool {
+        var stale = false
+        guard let url = try? URL(
+            resolvingBookmarkData: bookmark,
+            options: [.withSecurityScope],
+            relativeTo: nil,
+            bookmarkDataIsStale: &stale
+        ) else { return false }
+
+        stopAccessingIfNeeded()
+        UserDefaults.standard.set(bookmark, forKey: defaultsKey)
+        UserDefaults.standard.set(url.path, forKey: pathDefaultsKey)
+        selectedURL = url
+        displayPath = url.path
+        startAccessingIfPossible(url)
+        return true
+    }
+
+    /// Clears the current selection (used to blank the path field for the next
+    /// queue entry without losing already-captured per-item bookmarks).
+    func clearSelection() {
+        stopAccessingIfNeeded()
+        selectedURL = nil
+        displayPath = ""
+        UserDefaults.standard.removeObject(forKey: defaultsKey)
+        UserDefaults.standard.removeObject(forKey: pathDefaultsKey)
     }
 
     private func loadBookmark() {
@@ -1029,28 +1685,124 @@ final class DownloadDestinationStore {
 enum PersistedDownloadSource: String, Codable {
     case dropbox
     case googleDrive
+    case oneDrive
+    case pcloud
+    case mediafire
+
+    init(directHost: DirectHost) {
+        switch directHost {
+        case .oneDrive: self = .oneDrive
+        case .pcloud: self = .pcloud
+        case .mediafire: self = .mediafire
+        }
+    }
+
+    /// The matching direct host, or nil for the native Dropbox/Drive sources.
+    var directHost: DirectHost? {
+        switch self {
+        case .oneDrive: return .oneDrive
+        case .pcloud: return .pcloud
+        case .mediafire: return .mediafire
+        case .dropbox, .googleDrive: return nil
+        }
+    }
 }
 
 struct PersistedDownloadState: Codable {
+    var id: String?
     var source: PersistedDownloadSource
     var originalLink: String
     var sessionDirectoryPath: String
+    var finalDestinationPath: String?
     var items: [DownloadPlanItem]
     var currentIndex: Int
     var resumeDataBase64: String?
+    var topLevelDestinationPaths: [String: String]?
     var updatedAt: Date
+
+    var stableID: String {
+        id ?? sessionDirectoryPath
+    }
 
     var sessionDirectoryURL: URL {
         URL(fileURLWithPath: sessionDirectoryPath, isDirectory: true)
+    }
+
+    var finalDestinationURL: URL? {
+        guard let finalDestinationPath, !finalDestinationPath.isEmpty else { return nil }
+        return URL(fileURLWithPath: finalDestinationPath, isDirectory: true)
     }
 
     var resumeData: Data? {
         guard let resumeDataBase64 else { return nil }
         return Data(base64Encoded: resumeDataBase64)
     }
+
+    var shortDisplayTitle: String {
+        let sourceLabel = switch source {
+        case .dropbox: "Dropbox"
+        case .googleDrive: "Google Drive"
+        case .oneDrive: "OneDrive"
+        case .pcloud: "pCloud"
+        case .mediafire: "MediaFire"
+        }
+
+        let candidate = items.dropFirst(currentIndex).first?.displayName
+            ?? items.last?.displayName
+            ?? URL(string: originalLink)?.lastPathComponent
+            ?? originalLink
+        let clipped = candidate.count > 34 ? "\(candidate.prefix(34))..." : candidate
+        return "\(sourceLabel) - \(clipped)"
+    }
+
+    var contextMenuTitle: String {
+        let completed = min(currentIndex, max(items.count, 1))
+        return "\(shortDisplayTitle) (\(completed)/\(max(items.count, 1)))"
+    }
+
+    /// Sum of every file's known size — the total this session must download.
+    /// `nil` if any file's size is unknown (then we can't show "remaining").
+    var totalBytes: Int64? {
+        guard items.allSatisfy({ ($0.byteSize ?? 0) > 0 }) else { return nil }
+        return items.reduce(0) { $0 + ($1.byteSize ?? 0) }
+    }
+
+    /// Bytes actually saved so far: full size of every completed file plus the
+    /// size of the in-progress partial file(s) still sitting in the session dir.
+    var downloadedBytesOnDisk: Int64 {
+        let fileManager = FileManager.default
+        var bytes: Int64 = 0
+        for index in 0..<min(currentIndex, items.count) {
+            bytes += items[index].byteSize ?? 0
+        }
+        if let partials = try? fileManager.contentsOfDirectory(
+            at: sessionDirectoryURL,
+            includingPropertiesForKeys: [.fileSizeKey],
+            options: []
+        ) {
+            for url in partials where url.lastPathComponent.hasPrefix("part-") {
+                let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+                bytes += Int64(size)
+            }
+        }
+        return bytes
+    }
+
+    /// "12 MB / 5 GB" style progress for the recovery menu, or just downloaded
+    /// when the total isn't known.
+    func progressSummary(formatter: ByteCountFormatter) -> String {
+        let downloaded = formatter.string(fromByteCount: downloadedBytesOnDisk)
+        guard let totalBytes, totalBytes > 0 else { return downloaded }
+        let remaining = max(0, totalBytes - downloadedBytesOnDisk)
+        return "\(downloaded) / \(formatter.string(fromByteCount: totalBytes)) · \(formatter.string(fromByteCount: remaining)) LEFT"
+    }
 }
 
 final class PersistedDownloadStateStore {
+    static let retentionDaysDefaultsKey = "downloadSessionRetentionDays"
+    static let defaultRetentionDays = 7
+    static let retentionOptions = [1, 3, 7, 14, 30]
+
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
     private let fileURL: URL
@@ -1058,7 +1810,7 @@ final class PersistedDownloadStateStore {
     init(fileManager: FileManager = .default) {
         let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? fileManager.temporaryDirectory
-        let directory = appSupport.appendingPathComponent("GoogleDropboxDownloader", isDirectory: true)
+        let directory = appSupport.appendingPathComponent("EditHub", isDirectory: true)
         try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         fileURL = directory.appendingPathComponent("download-recovery.json")
 
@@ -1068,18 +1820,94 @@ final class PersistedDownloadStateStore {
     }
 
     func load() -> PersistedDownloadState? {
-        guard let data = try? Data(contentsOf: fileURL) else { return nil }
-        return try? decoder.decode(PersistedDownloadState.self, from: data)
+        loadAll().sorted { $0.updatedAt > $1.updatedAt }.first
+    }
+
+    func loadAll() -> [PersistedDownloadState] {
+        guard let data = try? Data(contentsOf: fileURL) else { return [] }
+        if let envelope = try? decoder.decode(PersistedDownloadStateEnvelope.self, from: data) {
+            return envelope.sessions
+        }
+        if let legacy = try? decoder.decode(PersistedDownloadState.self, from: data) {
+            return [legacy]
+        }
+        return []
     }
 
     func save(_ state: PersistedDownloadState) {
-        guard let data = try? encoder.encode(state) else { return }
+        var state = state
+        if state.id == nil {
+            state.id = UUID().uuidString
+        }
+
+        var sessions = loadAll()
+        sessions.removeAll { existing in
+            existing.stableID == state.stableID
+                || existing.sessionDirectoryPath == state.sessionDirectoryPath
+        }
+        sessions.append(state)
+        sessions = unexpiredSessions(from: sessions, removeSessionDirectories: true)
+
+        guard let data = try? encoder.encode(PersistedDownloadStateEnvelope(sessions: sessions)) else { return }
         try? data.write(to: fileURL, options: .atomic)
     }
 
-    func clear() {
+    func clear(_ state: PersistedDownloadState) {
+        let sessions = loadAll().filter { existing in
+            existing.stableID != state.stableID
+                && existing.sessionDirectoryPath != state.sessionDirectoryPath
+        }
+        write(sessions)
+    }
+
+    func clearAll(removeSessionDirectories: Bool) {
+        if removeSessionDirectories {
+            loadAll().forEach { try? FileManager.default.removeItem(at: $0.sessionDirectoryURL) }
+        }
         try? FileManager.default.removeItem(at: fileURL)
     }
+
+    func pruneExpiredSessions(removeSessionDirectories: Bool) {
+        write(unexpiredSessions(from: loadAll(), removeSessionDirectories: removeSessionDirectories))
+    }
+
+    static func retentionDays() -> Int {
+        let stored = UserDefaults.standard.integer(forKey: retentionDaysDefaultsKey)
+        return stored > 0 ? stored : defaultRetentionDays
+    }
+
+    static func setRetentionDays(_ days: Int) {
+        UserDefaults.standard.set(days, forKey: retentionDaysDefaultsKey)
+        NotificationCenter.default.post(name: .downloadSessionSettingsChanged, object: nil)
+    }
+
+    private func unexpiredSessions(from sessions: [PersistedDownloadState], removeSessionDirectories: Bool) -> [PersistedDownloadState] {
+        let cutoff = Date().addingTimeInterval(-Double(Self.retentionDays()) * 24 * 60 * 60)
+        return sessions.filter { state in
+            let keep = state.updatedAt >= cutoff
+            if !keep, removeSessionDirectories {
+                try? FileManager.default.removeItem(at: state.sessionDirectoryURL)
+            }
+            return keep
+        }
+    }
+
+    private func write(_ sessions: [PersistedDownloadState]) {
+        if sessions.isEmpty {
+            try? FileManager.default.removeItem(at: fileURL)
+            return
+        }
+        guard let data = try? encoder.encode(PersistedDownloadStateEnvelope(sessions: sessions)) else { return }
+        try? data.write(to: fileURL, options: .atomic)
+    }
+}
+
+private struct PersistedDownloadStateEnvelope: Codable {
+    var sessions: [PersistedDownloadState]
+}
+
+extension Notification.Name {
+    static let downloadSessionSettingsChanged = Notification.Name("downloadSessionSettingsChanged")
 }
 
 final class DownloadDiagnosticsStore {
@@ -1091,7 +1919,7 @@ final class DownloadDiagnosticsStore {
         self.fileManager = fileManager
         let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? fileManager.temporaryDirectory
-        let directory = appSupport.appendingPathComponent("GoogleDropboxDownloader", isDirectory: true)
+        let directory = appSupport.appendingPathComponent("EditHub", isDirectory: true)
         try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         fileURL = directory.appendingPathComponent("download.log")
     }

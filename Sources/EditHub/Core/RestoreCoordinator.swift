@@ -13,9 +13,14 @@ final class RestoreCoordinator {
         let accessed = manifestURL.startAccessingSecurityScopedResource()
         defer { if accessed { manifestURL.stopAccessingSecurityScopedResource() } }
 
+        guard let archiveRoot = iCloudStore.shared.rootURL else {
+            NSLog("EditHub restore failed: iCloud archive root is not selected")
+            return
+        }
+
         do {
             try await Task.detached(priority: .userInitiated) {
-                _ = try ProjectArchiver.restore(manifestURL: manifestURL)
+                _ = try ProjectArchiver.restore(manifestURL: manifestURL, archiveRoot: archiveRoot)
             }.value
             store.refresh()
         } catch {

@@ -32,44 +32,61 @@ enum ProjectArchiver {
     ///   - foldersToRemove: какие тяжёлые папки очистить локально. По умолчанию —
     ///     все тяжёлые (`ProjectFolder.removableOnArchive`). Пользователь может
     ///     передать подмножество, чтобы что-то оставить на диске.
+    /// - Parameter destinationURL: абсолютный URL архива в iCloud, заранее
+    ///   резолвнутый из выбранного корня (`iCloudStore.archiveURL(for:)`) на
+    ///   MainActor. Передаётся параметром, чтобы тяжёлую работу можно было
+    ///   выполнять в фоне, не обращаясь к `@MainActor`-стору.
     static func archive(
         _ project: Project,
+        destinationURL: URL,
         foldersToRemove: Set<ProjectFolder> = Set(ProjectFolder.removableOnArchive)
     ) throws {
         guard !project.isArchived else { throw ArchiverError.alreadyArchived }
 
         let fm = FileManager.default
 
-        // 1. Staging — копируем ценные папки и файлы проекта во временный каталог.
+        let localURL = project.localURL
+        let metadata = ProjectMetadataStore.load(projectURL: localURL)
+
+        // 1. Staging — копируем ценные папки, метаданные и файлы проекта во временный каталог.
         let staging = fm.temporaryDirectory
             .appendingPathComponent("edithub-archive-\(UUID().uuidString)", isDirectory: true)
         try fm.createDirectory(at: staging, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: staging) }
 
+        let metadataURL = ProjectMetadataStore.url(for: localURL)
+        if fm.fileExists(atPath: metadataURL.path) {
+            try? fm.copyItem(at: metadataURL, to: staging.appendingPathComponent(ProjectMetadataStore.fileName))
+        }
+
         for folder in ProjectFolder.allCases where folder.isValuable {
-            let src = project.folderURL(folder)
+            guard let src = project.folderURL(folder) else { continue }
             guard fm.fileExists(atPath: src.path) else { continue }
             let dst = staging.appendingPathComponent(folder.folderName, isDirectory: true)
             try fm.copyItem(at: src, to: dst)
         }
 
         // Файлы проекта в корне (.prproj/.aep/.drp и т.п.) — тоже в архив.
-        let rootEntries = (try? fm.contentsOfDirectory(at: project.url, includingPropertiesForKeys: nil)) ?? []
+        let rootEntries = (try? fm.contentsOfDirectory(at: localURL, includingPropertiesForKeys: nil)) ?? []
         for entry in rootEntries where !entry.hasDirectoryPath {
             let ext = entry.pathExtension.lowercased()
             guard ["prproj", "aep", "drp", "fcpbundle", "txt", "pdf"].contains(ext) else { continue }
             try? fm.copyItem(at: entry, to: staging.appendingPathComponent(entry.lastPathComponent))
         }
 
-        // 2. Zip → iCloud.
-        let destinationURL = try iCloudStore.archiveURL(for: project)
+        // 2. Zip → iCloud. Папки года/месяца внутри Archive создаём здесь.
+        try fm.createDirectory(
+            at: destinationURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
         try ZipArchiver.archive(directory: staging, outputURL: destinationURL)
         let size = (try? destinationURL.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init)
+        let checksum = try? FileChecksum.sha256(of: destinationURL)
 
         // 3. Удаляем выбранные тяжёлые папки локально (содержимое; папку оставляем пустой).
         var removed: [String] = []
         for folder in ProjectFolder.allCases where folder.isHeavy && foldersToRemove.contains(folder) {
-            let dir = project.folderURL(folder)
+            guard let dir = project.folderURL(folder) else { continue }
             guard fm.fileExists(atPath: dir.path) else { continue }
             let contents = (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
             for item in contents { try? fm.removeItem(at: item) }
@@ -78,29 +95,36 @@ enum ProjectArchiver {
 
         // 4. Удаляем ценные папки локально (они теперь в архиве), оставляем структуру.
         for folder in ProjectFolder.allCases where folder.isValuable {
-            let dir = project.folderURL(folder)
+            guard let dir = project.folderURL(folder) else { continue }
             let contents = (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
             for item in contents { try? fm.removeItem(at: item) }
         }
 
         // 5. Пишем манифест.
+        guard let manifestURL = project.manifestURL else { return }
         let manifest = ProjectManifest(
+            projectId: metadata.projectId,
             projectName: project.name,
             year: project.year,
             month: project.month,
             archivedAt: Date(),
             archiveRelativePath: iCloudStore.relativeArchivePath(for: project),
             removedHeavyFolders: removed,
-            archiveByteCount: size
+            archiveByteCount: size,
+            archiveChecksum: checksum,
+            footageLinks: metadata.footageLinks
         )
-        try manifest.write(to: project.manifestURL)
+        try manifest.write(to: manifestURL)
     }
 
     // MARK: - Восстановление
 
     /// Восстановить проект из архива в iCloud. Возвращает URL проекта.
+    /// - Parameter archiveRoot: выбранный корень iCloud, от которого резолвится
+    ///   относительный путь архива из манифеста. Передаётся параметром, чтобы
+    ///   распаковку можно было крутить в фоне без обращения к `@MainActor`-стору.
     @discardableResult
-    static func restore(manifestURL: URL) throws -> URL {
+    static func restore(manifestURL: URL, archiveRoot: URL) throws -> URL {
         let fm = FileManager.default
         let projectURL = manifestURL.deletingLastPathComponent()
 
@@ -111,15 +135,86 @@ enum ProjectArchiver {
             throw ArchiverError.manifestMissing
         }
 
-        let archiveURL = try iCloudStore.resolveArchiveURL(relativePath: manifest.archiveRelativePath)
+        let archiveURL = archiveRoot.appendingPathComponent(manifest.archiveRelativePath)
         try iCloudStore.ensureDownloaded(archiveURL)
 
-        // Распаковываем поверх проекта — ценные папки и файлы вернутся на места.
+        if let expected = manifest.archiveChecksum {
+            try FileChecksum.verify(url: archiveURL, expected: expected)
+        }
+
+        // Распаковываем поверх проекта — ценные папки, метаданные и файлы вернутся на места.
         try ZipArchiver.unzip(archive: archiveURL, destination: projectURL)
+
+        var metadata = ProjectMetadataStore.load(projectURL: projectURL)
+        // Сохраняем идентичность из манифеста, если в распакованных метаданных
+        // её не было (старый архив без `.edithub-metadata.json`).
+        var metadataChanged = false
+        if let id = manifest.projectId, metadata.projectId != id {
+            metadata.projectId = id
+            metadataChanged = true
+        }
+        for link in (manifest.footageLinks ?? []).reversed() {
+            let trimmed = link.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            metadata.footageLinks.removeAll { $0 == trimmed }
+            metadata.footageLinks.insert(trimmed, at: 0)
+            metadataChanged = true
+        }
+        if metadataChanged {
+            try? ProjectMetadataStore.save(metadata, projectURL: projectURL)
+        }
 
         // Убираем манифест — проект снова «живой».
         try? fm.removeItem(at: manifestURL)
 
         return projectURL
+    }
+
+    // MARK: - Восстановление remoteOnly-проекта
+
+    /// Восстановить проект, у которого нет локальной папки (только запись на сервере).
+    /// Создаёт `<projectsRoot>/<year>/<MONTH_UPPER>/<name>/`, распаковывает архив из iCloud.
+    /// - Returns: URL созданной папки проекта.
+    @discardableResult
+    static func restoreRemoteOnly(
+        project: Project,
+        projectsRoot: URL,
+        archiveRoot: URL
+    ) throws -> URL {
+        guard let relativePath = project.serverArchiveRelativePath else {
+            throw ArchiverError.manifestMissing
+        }
+
+        let fm = FileManager.default
+        let month = project.month.uppercased()
+        let projectDir = projectsRoot
+            .appendingPathComponent(project.year, isDirectory: true)
+            .appendingPathComponent(month, isDirectory: true)
+            .appendingPathComponent(project.name, isDirectory: true)
+
+        try fm.createDirectory(at: projectDir, withIntermediateDirectories: true)
+
+        // Стандартные подпапки — чтобы структура была сразу на месте.
+        for folder in ProjectFolder.allCases {
+            let sub = projectDir.appendingPathComponent(folder.folderName, isDirectory: true)
+            try? fm.createDirectory(at: sub, withIntermediateDirectories: false)
+        }
+
+        // Скачиваем архив из iCloud если нужно.
+        let archiveURL = archiveRoot.appendingPathComponent(relativePath)
+        try iCloudStore.ensureDownloaded(archiveURL)
+
+        // Распаковываем (checksum у remoteOnly нет в манифесте — нечего проверять).
+        try ZipArchiver.unzip(archive: archiveURL, destination: projectDir)
+
+        // Фиксируем UUID.
+        var metadata = ProjectMetadataStore.load(projectURL: projectDir)
+        let targetID = project.id
+        if metadata.projectId != targetID {
+            metadata.projectId = targetID
+            try? ProjectMetadataStore.save(metadata, projectURL: projectDir)
+        }
+
+        return projectDir
     }
 }

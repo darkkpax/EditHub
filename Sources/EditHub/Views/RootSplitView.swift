@@ -1,87 +1,168 @@
 import SwiftUI
 
-/// Главное окно: сайдбар (разделы) → список проектов → деталь.
 struct RootSplitView: View {
-    @EnvironmentObject private var store: ProjectStore
-    @State private var section: AppSection = .projects
+    @Environment(ProjectStore.self) private var store
+
     @State private var selectedProject: Project?
+    @State private var downloadViewModel = DownloadViewModel()
+    @State private var showCreatePopover = false
+    @State private var iCloud = iCloudStore.shared
+    @State private var isImporting = false
+    @State private var importAlert: ImportAlert?
+    @Namespace private var createMorphNamespace
+
+    struct ImportAlert: Identifiable {
+        let id = UUID()
+        let title: String
+        let message: String
+    }
 
     var body: some View {
-        NavigationSplitView {
-            sidebar
-                .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 240)
-        } content: {
-            contentColumn
-                .navigationSplitViewColumnWidth(min: 240, ideal: 300, max: 420)
-        } detail: {
-            detailColumn
+        ZStack(alignment: .bottomTrailing) {
+            projectsLayout
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            if showCreatePopover {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .ignoresSafeArea()
+                    .onTapGesture { dismissCreate() }
+                    .zIndex(20)
+            }
+
+            createProjectSurface
+                .padding(.trailing, 22)
+                .padding(.bottom, 22)
+                .zIndex(30)
         }
-        .frame(minWidth: 880, minHeight: 560)
+        .background(WindowBackdrop())
+        .alert(item: $importAlert) { alert in
+            Alert(
+                title: Text(alert.title),
+                message: Text(alert.message),
+                dismissButton: .default(Text("OK"))
+            )
+        }
     }
 
-    // MARK: - Sidebar
+    private func dismissCreate() {
+        withAnimation(SoftIOSMotion.morph) {
+            showCreatePopover = false
+        }
+    }
 
-    private var sidebar: some View {
-        List(selection: $section) {
-            Section("EDITHUB") {
-                ForEach(AppSection.allCases) { item in
-                    Label(item.title, systemImage: item.systemImage)
-                        .tag(item)
+    private var createProjectSurface: some View {
+        ZStack(alignment: .bottomTrailing) {
+            GlassEffectContainer(spacing: 28) {
+                VStack(alignment: .trailing, spacing: 12) {
+                    if showCreatePopover {
+                        CreateAndDownloadPopover(
+                            downloadViewModel: downloadViewModel,
+                            onCreated: { project in
+                                withAnimation(SoftIOSMotion.entry) {
+                                    store.refresh()
+                                    selectedProject = project
+                                }
+                            },
+                            onDismiss: dismissCreate,
+                            morphNamespace: createMorphNamespace
+                        )
+                        .frame(width: 390)
+                        .transition(
+                            .asymmetric(
+                                insertion: .scale(scale: 0.86, anchor: .bottomTrailing)
+                                    .combined(with: .opacity),
+                                removal: .scale(scale: 0.92, anchor: .bottomTrailing)
+                                    .combined(with: .opacity)
+                            )
+                        )
+                    }
+
+                    Button {
+                        withAnimation(SoftIOSMotion.morph) {
+                            showCreatePopover.toggle()
+                        }
+                    } label: {
+                        ZStack {
+                            if showCreatePopover {
+                                Circle()
+                                    .fill(Theme.accent)
+                                    .glassEffect(
+                                        .regular.tint(Theme.accent.opacity(0.95)).interactive(),
+                                        in: .circle
+                                    )
+                            } else {
+                                Circle()
+                                    .fill(Theme.accent)
+                                    .glassEffect(
+                                        .regular.tint(Theme.accent.opacity(0.95)).interactive(),
+                                        in: .circle
+                                    )
+                            }
+
+                            Image(systemName: "plus")
+                                .font(.system(size: 24, weight: .regular))
+                                .foregroundStyle(Color.white)
+                                .rotationEffect(.degrees(showCreatePopover ? 45 : 0))
+                                .zIndex(2)
+                        }
+                        .frame(width: 56, height: 56)
+                        .contentShape(Circle())
+                        .shadow(color: Theme.accent.opacity(0.32), radius: 18, y: 8)
+                    }
+                    .buttonStyle(.plain)
+                    .help(showCreatePopover ? "Close" : "New project")
                 }
             }
-        }
-        .listStyle(.sidebar)
-        .safeAreaInset(edge: .bottom) {
-            rootFolderFooter
+            .zIndex(1)
         }
     }
 
-    private var rootFolderFooter: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Divider()
-            Text(store.rootDisplayPath.isEmpty ? "КОРЕНЬ НЕ ВЫБРАН" : store.rootDisplayPath)
-                .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Button("ВЫБРАТЬ КОРЕНЬ ПРОЕКТОВ") { chooseRoot() }
-                .font(.system(size: 9, weight: .semibold))
-                .buttonStyle(.plain)
-                .foregroundStyle(.tint)
-        }
-        .padding(.horizontal, 10)
-        .padding(.bottom, 8)
+    private var importAction: (() -> Void)? {
+        guard iCloud.isAvailable, store.rootURL != nil else { return nil }
+        return importArchives
     }
 
-    // MARK: - Content column
+    private var projectsLayout: some View {
+        HSplitView {
+            ProjectListView(
+                selectedProject: $selectedProject,
+                downloadViewModel: downloadViewModel,
+                onChooseRoot: chooseRoot,
+                rootStatusIcon: rootStatusIcon,
+                rootStatusColor: rootStatusColor,
+                onChooseICloud: chooseICloud,
+                iCloudStatusIcon: iCloud.isAvailable ? "icloud.fill" : "icloud",
+                iCloudStatusColor: iCloud.isAvailable ? .green : .secondary,
+                onImportArchives: importAction,
+                isImporting: isImporting
+            )
+            .ignoresSafeArea()
+            .frame(minWidth: 300, idealWidth: 340, maxWidth: 460)
 
-    @ViewBuilder
-    private var contentColumn: some View {
-        switch section {
-        case .projects:
-            ProjectListView(selectedProject: $selectedProject, archivedOnly: false)
-        case .archive:
-            ProjectListView(selectedProject: $selectedProject, archivedOnly: true)
-        case .create:
-            CreateProjectView(selectedProject: $selectedProject, switchToProjects: { section = .projects })
-        case .download:
-            DownloadView(targetProject: selectedProject)
+            Group {
+                if let project = selectedProject {
+                    ProjectDetailView(project: project, downloadViewModel: downloadViewModel)
+                        .id(project.id)
+                } else {
+                    Color.clear
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(minWidth: 380, maxWidth: .infinity)
         }
     }
 
-    // MARK: - Detail column
+    // MARK: - Root status
 
-    @ViewBuilder
-    private var detailColumn: some View {
-        if section == .create {
-            EmptyDetail(text: "Заполни форму слева и создай новый проект.")
-        } else if section == .download {
-            EmptyDetail(text: "Вставь ссылку Google Drive или Dropbox.")
-        } else if let project = selectedProject {
-            ProjectDetailView(project: project)
-        } else {
-            EmptyDetail(text: "Выбери проект, чтобы увидеть структуру папок и действия.")
-        }
+    private var rootStatusIcon: String {
+        if store.rootURL == nil { return "questionmark.folder" }
+        return store.hasYearFolders ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
+    }
+
+    private var rootStatusColor: Color {
+        if store.rootURL == nil { return .secondary }
+        return store.hasYearFolders ? .green : .orange
     }
 
     // MARK: - Actions
@@ -92,27 +173,71 @@ struct RootSplitView: View {
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
         panel.canCreateDirectories = true
-        panel.prompt = "ВЫБРАТЬ"
+        panel.prompt = "Choose"
+        panel.message = "Select the folder that contains your year folders."
         panel.directoryURL = store.rootURL
         guard panel.runModal() == .OK, let url = panel.url else { return }
         try? store.setRoot(url)
     }
+
+    private func importArchives() {
+        guard let iCloudRoot = iCloud.rootURL, let projectsRoot = store.rootURL else { return }
+        isImporting = true
+        Task.detached(priority: .userInitiated) {
+            let result = try? ICloudArchiveImporter.import(from: iCloudRoot, into: projectsRoot)
+            await MainActor.run {
+                isImporting = false
+                store.refresh()
+                let r = result ?? ICloudArchiveImporter.ImportResult()
+                importAlert = ImportAlert(
+                    title: r.imported > 0 ? "Import complete" : "Nothing new",
+                    message: r.errors.isEmpty
+                        ? r.summary
+                        : r.summary + "\n\nErrors:\n" + r.errors.prefix(5).joined(separator: "\n")
+                )
+            }
+        }
+    }
+
+    private func chooseICloud() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = true
+        panel.prompt = "Choose"
+        panel.message = "Select a folder inside iCloud Drive for project archives (e.g. iCloud Drive/EditHub)."
+        panel.directoryURL = iCloud.rootURL ?? FileManager.default
+            .url(forUbiquityContainerIdentifier: nil)?
+            .deletingLastPathComponent()
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        try? iCloud.setRoot(url)
+    }
 }
 
+
+// MARK: - Empty detail
+
 struct EmptyDetail: View {
-    let text: String
+    var icon: String = "square.dashed"
+    var title: String = ""
+    let message: String
+
+    init(text: String) {
+        self.message = text
+    }
+
+    init(icon: String, title: String, message: String) {
+        self.icon = icon
+        self.title = title
+        self.message = message
+    }
 
     var body: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "square.dashed")
-                .font(.system(size: 32, weight: .light))
-                .foregroundStyle(.tertiary)
-            Text(text)
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 280)
+        ContentUnavailableView {
+            Label(title.isEmpty ? "Nothing Here" : title, systemImage: icon)
+        } description: {
+            Text(message)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

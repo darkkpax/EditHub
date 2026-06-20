@@ -7,9 +7,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private weak var store: ProjectStore?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApplication.shared.setActivationPolicy(.regular)
         DispatchQueue.main.async {
             NSApplication.shared.activate(ignoringOtherApps: true)
+            self.styleMainWindow()
         }
+    }
+
+    private func styleMainWindow() {
+        guard let window = NSApplication.shared.windows.first else { return }
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.styleMask.insert(.fullSizeContentView)
+        window.isMovableByWindowBackground = true
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -21,16 +31,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for url in urls { handleOpen(url, store: store) }
     }
 
+    /// Called once the SwiftUI scene has the store. Drains any manifests that
+    /// were opened from Finder before the store existed (cold start).
+    @MainActor
+    func attach(store: ProjectStore) {
+        self.store = store
+        guard !pendingRestoreURLs.isEmpty else { return }
+        let queued = pendingRestoreURLs
+        pendingRestoreURLs.removeAll()
+        for url in queued {
+            Task { await RestoreCoordinator.shared.restore(manifestURL: url, store: store) }
+        }
+    }
+
     @MainActor
     func handleOpen(_ url: URL, store: ProjectStore?) {
-        self.store = store
+        // Remember the store the moment we get one, and flush anything that
+        // arrived before it was ready (cold start: Finder opens a .edithub
+        // before the WindowGroup has injected the store).
+        if let store { self.store = store }
+
         guard url.pathExtension.lowercased() == "edithub" else { return }
 
-        guard let store else {
+        guard let activeStore = self.store else {
             pendingRestoreURLs.append(url)
             return
         }
 
-        Task { await RestoreCoordinator.shared.restore(manifestURL: url, store: store) }
+        let queued = pendingRestoreURLs
+        pendingRestoreURLs.removeAll()
+        for pending in queued {
+            Task { await RestoreCoordinator.shared.restore(manifestURL: pending, store: activeStore) }
+        }
+        Task { await RestoreCoordinator.shared.restore(manifestURL: url, store: activeStore) }
     }
 }

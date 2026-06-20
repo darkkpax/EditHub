@@ -54,21 +54,26 @@ struct ProjectScaffolder {
         return sanitized.uppercased()
     }
 
-    static func createStructure(rootURL: URL, rawProjectName: String, template: ProjectTemplate) throws -> URL {
+    /// Year/month strings for a date, in the canonical on-disk format
+    /// (`2026` / `JUNE`). Used both when scaffolding and when previewing the
+    /// target path in the UI.
+    static func yearMonth(for date: Date = Date()) -> (year: String, month: String) {
+        let posixLocale = Locale(identifier: "en_US_POSIX")
+        let year = date.formatted(.dateTime.locale(posixLocale).year())
+        let month = date.formatted(.dateTime.locale(posixLocale).month(.wide)).uppercased()
+        return (year, month)
+    }
+
+    static func createStructure(
+        rootURL: URL,
+        rawProjectName: String,
+        template: ProjectTemplate,
+        date: Date = Date()
+    ) throws -> URL {
         let projectName = sanitizeProjectName(rawProjectName)
         guard !projectName.isEmpty else { throw ProjectScaffolderError.invalidProjectName }
 
-        let date = Date()
-        let yearFormatter = DateFormatter()
-        yearFormatter.locale = Locale(identifier: "en_US_POSIX")
-        yearFormatter.dateFormat = "yyyy"
-
-        let monthFormatter = DateFormatter()
-        monthFormatter.locale = Locale(identifier: "en_US_POSIX")
-        monthFormatter.dateFormat = "LLLL"
-
-        let year = yearFormatter.string(from: date)
-        let month = monthFormatter.string(from: date).uppercased()
+        let (year, month) = yearMonth(for: date)
 
         let projectURL = rootURL
             .appendingPathComponent(year, isDirectory: true)

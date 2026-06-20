@@ -4,11 +4,20 @@ final class FolderBookmarkStore: ObservableObject {
     @Published private(set) var selectedURL: URL?
     @Published private(set) var displayPath: String = ""
 
-    private let defaultsKey = "selectedRootFolderBookmark"
-    private let pathDefaultsKey = "selectedRootFolderPath"
+    private let defaultsKey: String
+    private let pathDefaultsKey: String
     private var hasScopedAccess = false
 
-    init() {
+    /// - Parameters:
+    ///   - defaultsKey: ключ UserDefaults для bookmark-данных. По умолчанию —
+    ///     корень проектов (исторический ключ, сохраняем совместимость).
+    ///   - pathDefaultsKey: ключ для запасного отображаемого пути.
+    init(
+        defaultsKey: String = "selectedRootFolderBookmark",
+        pathDefaultsKey: String = "selectedRootFolderPath"
+    ) {
+        self.defaultsKey = defaultsKey
+        self.pathDefaultsKey = pathDefaultsKey
         loadBookmark()
     }
 

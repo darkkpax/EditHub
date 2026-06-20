@@ -1,0 +1,16 @@
+{
+  "name": "edithub-server",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js",
+    "migrate": "node src/db/migrate.js"
+  },
+  "dependencies": {
+    "fastify": "^4.28.1",
+    "@fastify/jwt": "^8.0.1",
+    "better-sqlite3": "^11.3.0",
+    "bcrypt": "^5.1.1"
+  }
+}

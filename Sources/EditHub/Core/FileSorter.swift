@@ -70,7 +70,7 @@ enum FileSorter {
                 fileName: source.lastPathComponent,
                 sourceFolderName: sourceFolderName
             )
-            let targetDir = project.folderURL(target)
+            guard let targetDir = project.folderURL(target) else { continue }
 
             do {
                 try fm.createDirectory(at: targetDir, withIntermediateDirectories: true)
