@@ -1,0 +1,40 @@
+appId: com.edithub.app
+productName: EditHub
+copyright: Copyright © 2026 EditHub
+
+directories:
+  output: dist/installer
+  buildResources: assets
+
+files:
+  - dist/electron/**/*
+  - dist/renderer/**/*
+  - assets/**/*
+  - node_modules/**/*
+  - "!node_modules/.cache"
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: assets/icon.ico
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  runAfterFinish: true
+  installerIcon: assets/icon.ico
+  uninstallerIcon: assets/icon.ico
+  installerHeaderIcon: assets/icon.ico
+  menuCategory: EditHub
+
+extraResources:
+  - from: assets/
+    to: assets/
+    filter:
+      - "**/*"
+
+publish: null
