@@ -1,0 +1,483 @@
+import 'package:flutter/material.dart';
+
+import '../../models/models.dart';
+import '../../theme.dart';
+import '../design/motion.dart';
+
+class ProjectDetail extends StatelessWidget {
+  const ProjectDetail({
+    super.key,
+    required this.project,
+    required this.folders,
+    required this.size,
+    required this.onOpen,
+    required this.onReveal,
+    required this.onArchive,
+    required this.onRestore,
+    required this.onDelete,
+    required this.onCancelDownload,
+    required this.onEntryOpen,
+  });
+
+  final ProjectInfo project;
+  final Future<List<FolderEntry>> folders;
+  final Future<int> size;
+  final VoidCallback onOpen;
+  final VoidCallback onReveal;
+  final VoidCallback onArchive;
+  final VoidCallback onRestore;
+  final VoidCallback onDelete;
+  final VoidCallback onCancelDownload;
+  final ValueChanged<FolderEntry> onEntryOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final archived =
+        project.status == ProjectStatus.archive ||
+        project.status == ProjectStatus.incloud;
+    final averageProgress = project.downloadProgress.isEmpty
+        ? 0.0
+        : project.downloadProgress.values.reduce((a, b) => a + b) /
+              project.downloadProgress.length;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
+          child: Row(
+            children: [
+              Container(
+                width: 64,
+                height: 64,
+                decoration: BoxDecoration(
+                  color: (archived ? AppColors.warn : AppColors.accent)
+                      .withValues(alpha: .14),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(
+                  archived ? Icons.cloud_outlined : Icons.folder_rounded,
+                  color: archived ? AppColors.warn : AppColors.accent,
+                  size: 31,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            project.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 9),
+                        _StatusBadge(status: project.status),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${_month(project.month)} ${project.year ?? ''}',
+                      style: const TextStyle(
+                        color: AppColors.dim,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _PrimaryAction(
+                    key: const Key('project-open-action'),
+                    onTap: archived ? onRestore : onOpen,
+                    icon: archived
+                        ? Icons.cloud_download_rounded
+                        : Icons.play_arrow_rounded,
+                    label: archived ? 'Restore' : 'Open',
+                  ),
+                  _CircleAction(
+                    key: const Key('project-reveal-action'),
+                    tooltip: 'Show in file manager',
+                    onTap: onReveal,
+                    icon: Icons.folder_open_rounded,
+                  ),
+                  _CircleAction(
+                    key: const Key('project-archive-action'),
+                    tooltip: archived ? 'Already in iCloud' : 'Offload to iCloud',
+                    onTap: archived ? null : onArchive,
+                    icon: Icons.cloud_upload_rounded,
+                  ),
+                  _CircleAction(
+                    key: const Key('project-delete-action'),
+                    tooltip: 'Delete project',
+                    onTap: onDelete,
+                    icon: Icons.delete_outline_rounded,
+                    danger: true,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        if (project.status == ProjectStatus.downloading)
+          Container(
+            padding: const EdgeInsets.fromLTRB(18, 10, 18, 10),
+            decoration: const BoxDecoration(
+              border: Border.symmetric(
+                horizontal: BorderSide(color: AppColors.sep),
+              ),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.downloading_rounded, color: AppColors.accent),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Downloading footage · ${averageProgress.round()}%',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                      const SizedBox(height: 6),
+                      LinearProgressIndicator(value: averageProgress / 100),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 10),
+                TextButton(
+                  onPressed: onCancelDownload,
+                  child: const Text('Cancel'),
+                ),
+              ],
+            ),
+          ),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 11),
+          decoration: const BoxDecoration(
+            border: Border(bottom: BorderSide(color: AppColors.sep)),
+          ),
+          child: Wrap(
+            spacing: 10,
+            children: [
+              _Stat(label: 'Links', value: '${project.footageUrls.length}'),
+              FutureBuilder<int>(
+                future: size,
+                builder: (_, snap) => _Stat(
+                  label: 'Size',
+                  value: snap.hasData ? _formatBytes(snap.data) : '…',
+                ),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Project files',
+                  style: TextStyle(
+                    color: AppColors.dim,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: .7,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Expanded(
+                  child: archived
+                      ? const _EmptyFolders(
+                          text: 'Restore the project to see local files.',
+                        )
+                      : FutureBuilder<List<FolderEntry>>(
+                          future: folders,
+                          builder: (context, snapshot) {
+                            if (snapshot.connectionState !=
+                                ConnectionState.done) {
+                              return const Center(
+                                child: CircularProgressIndicator(),
+                              );
+                            }
+                            final entries = snapshot.data ?? const [];
+                            if (entries.isEmpty) {
+                              return const _EmptyFolders(
+                                text: 'This project folder is empty or unavailable.',
+                              );
+                            }
+                            return ListView.separated(
+                              itemCount: entries.length,
+                              separatorBuilder: (_, _) =>
+                                  const SizedBox(height: 5),
+                              itemBuilder: (_, index) => FadeInUp(
+                                delay: Duration(
+                                  milliseconds: (index * 22).clamp(0, 220),
+                                ),
+                                child: _FolderTile(
+                                  entry: entries[index],
+                                  onTap: () => onEntryOpen(entries[index]),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _month(String? value) {
+    if (value == null || value.isEmpty) return '';
+    return '${value[0]}${value.substring(1).toLowerCase()}';
+  }
+
+  String _formatBytes(int? bytes) {
+    if (bytes == null || bytes == 0) return '0 B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    if (bytes < 1024 * 1024 * 1024) {
+      return '${(bytes / 1024 / 1024).toStringAsFixed(1)} MB';
+    }
+    return '${(bytes / 1024 / 1024 / 1024).toStringAsFixed(2)} GB';
+  }
+}
+
+class _PrimaryAction extends StatelessWidget {
+  const _PrimaryAction({
+    super.key,
+    required this.onTap,
+    required this.icon,
+    required this.label,
+  });
+
+  final VoidCallback onTap;
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => PressableScale(
+    onTap: onTap,
+    child: Container(
+      height: 40,
+      padding: const EdgeInsets.symmetric(horizontal: 17),
+      decoration: BoxDecoration(
+        color: AppColors.accent,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.accent.withValues(alpha: .25),
+            blurRadius: 18,
+            offset: const Offset(0, 7),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 19, color: Colors.white),
+          const SizedBox(width: 7),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _CircleAction extends StatelessWidget {
+  const _CircleAction({
+    super.key,
+    required this.tooltip,
+    required this.onTap,
+    required this.icon,
+    this.danger = false,
+  });
+
+  final String tooltip;
+  final VoidCallback? onTap;
+  final IconData icon;
+  final bool danger;
+
+  @override
+  Widget build(BuildContext context) => Tooltip(
+    message: tooltip,
+    child: PressableScale(
+      onTap: onTap,
+      enabled: onTap != null,
+      child: AnimatedOpacity(
+        opacity: onTap == null ? .35 : 1,
+        duration: const Duration(milliseconds: 140),
+        child: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: const Color(0x08FFFFFF),
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: danger
+                  ? AppColors.bad.withValues(alpha: .55)
+                  : Colors.white.withValues(alpha: .45),
+            ),
+          ),
+          child: Icon(
+            icon,
+            size: 19,
+            color: danger ? AppColors.bad : AppColors.txt,
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class _StatusBadge extends StatelessWidget {
+  const _StatusBadge({required this.status});
+  final ProjectStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final (label, color) = switch (status) {
+      ProjectStatus.active => ('Open', AppColors.accent),
+      ProjectStatus.downloading => ('Downloading', AppColors.warn),
+      ProjectStatus.uploading => ('iCloud', AppColors.brand),
+      ProjectStatus.archive ||
+      ProjectStatus.incloud => ('iCloud', AppColors.warn),
+      ProjectStatus.ready => ('Ready', AppColors.good),
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: .11),
+        border: Border.all(color: color.withValues(alpha: .25)),
+        borderRadius: BorderRadius.circular(99),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+}
+
+class _Stat extends StatelessWidget {
+  const _Stat({required this.label, required this.value});
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+    decoration: BoxDecoration(
+      color: const Color(0x0AFFFFFF),
+      border: Border.all(color: AppColors.sep),
+      borderRadius: BorderRadius.circular(9),
+    ),
+    child: Text('$label  $value', style: const TextStyle(fontSize: 12)),
+  );
+}
+
+class _FolderTile extends StatelessWidget {
+  const _FolderTile({required this.entry, required this.onTap});
+  final FolderEntry entry;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final isFolder = entry.isFolder;
+    return PressableScale(
+      onTap: onTap,
+      pressedScale: .985,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          // Folders read as solid tiles; files sit flatter for clear separation.
+          color: isFolder ? const Color(0x12FFFFFF) : Colors.transparent,
+          border: Border.all(
+            color: isFolder ? AppColors.sep : const Color(0x0AFFFFFF),
+          ),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 30,
+              height: 30,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: isFolder
+                    ? AppColors.accent.withValues(alpha: .16)
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(9),
+              ),
+              child: Icon(
+                isFolder
+                    ? Icons.folder_rounded
+                    : Icons.insert_drive_file_outlined,
+                color: isFolder ? AppColors.accent : AppColors.dim,
+                size: 17,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                entry.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: isFolder ? FontWeight.w600 : FontWeight.w400,
+                  color: isFolder ? AppColors.txt : AppColors.dim,
+                ),
+              ),
+            ),
+            Icon(
+              isFolder ? Icons.chevron_right_rounded : Icons.open_in_new_rounded,
+              color: AppColors.dim,
+              size: isFolder ? 18 : 14,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyFolders extends StatelessWidget {
+  const _EmptyFolders({required this.text});
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Text(
+      text,
+      textAlign: TextAlign.center,
+      style: const TextStyle(color: AppColors.dim, fontSize: 13),
+    ),
+  );
+}
