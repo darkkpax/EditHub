@@ -1,0 +1,82 @@
+name: Release EditHub (Flutter)
+
+# Push a tag like v1.0.1 to build the Flutter Windows app and publish a
+# GitHub Release with the zipped app + an appcast.xml WinSparkle reads.
+# The installed app checks releases/latest/download/appcast.xml on launch.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: flutter_app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Version from tag
+        shell: pwsh
+        run: |
+          $v = "${{ github.ref_name }}".TrimStart('v')
+          "VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - run: flutter pub get
+
+      - name: Build
+        run: flutter build windows --release --build-name=$env:VERSION
+
+      - name: Build installer (Inno Setup)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          choco install innosetup -y --no-progress
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          & $iscc "/DMyAppVersion=$env:VERSION" installer\edithub.iss
+
+      - name: Generate appcast
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $setup = "EditHub-Setup-$env:VERSION.exe"
+          $len = (Get-Item "installer/Output/$setup").Length
+          $url = "https://github.com/darkkpax/EditHub/releases/download/v$env:VERSION/$setup"
+          $date = (Get-Date).ToUniversalTime().ToString('r')
+          # ponytail: unsigned over HTTPS. If WinSparkle rejects it, add an
+          # EdDSA sparkle:edSignature (generate a key with sign_update) here.
+          @"
+          <?xml version="1.0" encoding="utf-8"?>
+          <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+            <channel>
+              <title>EditHub</title>
+              <item>
+                <title>Version $env:VERSION</title>
+                <pubDate>$date</pubDate>
+                <sparkle:os>windows</sparkle:os>
+                <sparkle:version>$env:VERSION</sparkle:version>
+                <enclosure url="$url" sparkle:version="$env:VERSION" length="$len" type="application/octet-stream" sparkle:installerArguments="/VERYSILENT /NORESTART" />
+              </item>
+            </channel>
+          </rss>
+          "@ | Out-File -FilePath appcast.xml -Encoding utf8
+
+      - name: Publish release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "v$env:VERSION" `
+            "installer/Output/EditHub-Setup-$env:VERSION.exe" `
+            "appcast.xml" `
+            --title "EditHub v$env:VERSION" `
+            --generate-notes
