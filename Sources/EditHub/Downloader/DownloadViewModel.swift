@@ -1476,9 +1476,11 @@ enum GoogleDriveAPIKeyStorage {
     static let storageKey = "google_drive_api_key"
     static let keychainAccount = "google_drive_api_key"
 
-    /// Baked-in default so the app works on a fresh machine without manual setup.
-    /// A user-entered value (Keychain/UserDefaults) always takes precedence.
-    static let bundledDefault = "***REMOVED***"
+    /// No key is baked into source (repo is public). Set it once via the app's
+    /// settings (stored in Keychain) or the `EDITHUB_GDRIVE_API_KEY` env var.
+    /// The real value is kept locally in the gitignored SECRETS.local.md.
+    static let bundledDefault =
+        ProcessInfo.processInfo.environment["EDITHUB_GDRIVE_API_KEY"] ?? ""
 
     static func current() -> String {
         if let keychainValue = (try? KeychainCredentialStore.readString(account: keychainAccount))?

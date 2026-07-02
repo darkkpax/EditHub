@@ -292,9 +292,11 @@ enum GoogleDriveOAuthClientSecretStorage {
     static let storageKey = "google_drive_oauth_client_secret"
     static let keychainAccount = "google_drive_oauth_client_secret"
 
-    /// Baked-in default so the app works on a fresh machine without manual setup.
-    /// A user-entered value (Keychain/UserDefaults) always takes precedence.
-    static let bundledDefault = "***REMOVED***"
+    /// No secret is baked into source (repo is public). Set it once via the
+    /// app's settings (stored in Keychain) or the `EDITHUB_GDRIVE_OAUTH_SECRET`
+    /// env var. The real value is kept locally in the gitignored SECRETS.local.md.
+    static let bundledDefault =
+        ProcessInfo.processInfo.environment["EDITHUB_GDRIVE_OAUTH_SECRET"] ?? ""
 
     static func current() -> String {
         if let keychainValue = (try? KeychainCredentialStore.readString(account: keychainAccount))?
