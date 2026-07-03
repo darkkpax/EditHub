@@ -3,7 +3,6 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
-  auto_updater_windows
   desktop_drop
   screen_retriever_windows
   tray_manager

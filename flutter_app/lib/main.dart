@@ -69,19 +69,35 @@ Future<void> main() async {
   windowManager.waitUntilReadyToShow(options, () async {
     await windowManager.show();
     await windowManager.focus();
-    await initAutoUpdater();
   });
 
   runApp(const ProviderScope(child: EditHubRoot()));
 }
 
-class EditHubRoot extends StatelessWidget {
+final _navigatorKey = GlobalKey<NavigatorState>();
+
+class EditHubRoot extends StatefulWidget {
   const EditHubRoot({super.key});
+
+  @override
+  State<EditHubRoot> createState() => _EditHubRootState();
+}
+
+class _EditHubRootState extends State<EditHubRoot> {
+  @override
+  void initState() {
+    super.initState();
+    // Check for updates once the navigator exists (styled in-app prompt).
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => UpdaterService(_navigatorKey).start(),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'EditHub',
+      navigatorKey: _navigatorKey,
       debugShowCheckedModeBanner: false,
       theme: buildTheme(),
       home: const EditHubApp(),
