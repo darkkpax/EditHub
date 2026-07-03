@@ -51,8 +51,9 @@ class ICloudService {
     }
   }
 
-  /// Single source of truth for archived projects.
-  String get archiveFolder => p.join(icloudPath, 'Videos');
+  /// Single source of truth for archived projects: `{icloud}/edithub/Videos`,
+  /// then sorted `/{year}/{month}/{project}` by the archiver.
+  String get archiveFolder => p.join(icloudPath, 'edithub', 'Videos');
 
   /// True while iCloud is up/downloading: a `.icloud` placeholder exists or a
   /// file under the archive root was touched in the last 60s.

@@ -16,9 +16,11 @@ class AppTabBar extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final active = ref.watch(activeTabProvider);
     return GlassSurface(
-      blur: 18,
-      scrim: .48,
-      frost: .08,
+      // Floats over the panels' own glass, so keep it light to avoid a
+      // double-scrim dark strip and any seam.
+      blur: 12,
+      scrim: .16,
+      frost: .05,
       border: false,
       borderRadius: BorderRadius.zero,
       child: SizedBox(

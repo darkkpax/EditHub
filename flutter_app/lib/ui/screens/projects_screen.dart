@@ -18,10 +18,15 @@ class ProjectsScreen extends ConsumerStatefulWidget {
   ConsumerState<ProjectsScreen> createState() => _ProjectsScreenState();
 }
 
-class _ProjectsScreenState extends ConsumerState<ProjectsScreen> {
+class _ProjectsScreenState extends ConsumerState<ProjectsScreen>
+    with SingleTickerProviderStateMixin {
   String? _selectedId;
   final _createLink = LayerLink();
   OverlayEntry? _createEntry;
+  // Drives the create popover in AND out (fade + scale) so dismissal animates.
+  // Built in initState (not `late`) so dispose() never lazily creates a Ticker
+  // on a deactivated element.
+  late final AnimationController _createAnim;
 
   // Cache folder listings per project path so a rebuild (e.g. opening the
   // create popup) doesn't re-scan the disk and make the UI stutter.
@@ -31,8 +36,18 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen> {
   final Map<String, Future<int>> _sizeCache = {};
 
   @override
+  void initState() {
+    super.initState();
+    _createAnim = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 220),
+    );
+  }
+
+  @override
   void dispose() {
     _createEntry?.remove();
+    _createAnim.dispose();
     super.dispose();
   }
 
@@ -60,11 +75,9 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen> {
                       setState(() => _selectedId = project.id),
                 ),
                 Expanded(
-                  // Clear the floating top bar (sidebar stays full-height so
-                  // its glass reads under the bar).
-                  child: Padding(
-                    padding: const EdgeInsets.only(top: 48),
-                    child: AnimatedSwitcher(
+                  // Detail fills full height; its own glass header clears the
+                  // floating top bar (like the sidebar), so no seam.
+                  child: AnimatedSwitcher(
                     duration: const Duration(milliseconds: 220),
                     switchInCurve: Curves.easeOutCubic,
                     transitionBuilder: (child, animation) => FadeTransition(
@@ -94,7 +107,6 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen> {
                                 .read(projectRepositoryProvider)
                                 .cancelDownload(selected.id),
                           ),
-                    ),
                   ),
                 ),
               ],
@@ -183,22 +195,39 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen> {
             targetAnchor: Alignment.topRight,
             followerAnchor: Alignment.bottomRight,
             offset: const Offset(0, -10),
-            child: NewProjectPopover(
-              onClose: _closeCreate,
-              onCreate: _createProject,
+            child: AnimatedBuilder(
+              animation: _createAnim,
+              builder: (context, child) {
+                final t = Curves.easeOutBack.transform(_createAnim.value);
+                return Opacity(
+                  opacity: _createAnim.value.clamp(0, 1),
+                  child: Transform.scale(
+                    scale: .9 + .1 * t,
+                    alignment: Alignment.bottomRight,
+                    child: child,
+                  ),
+                );
+              },
+              child: NewProjectPopover(
+                onClose: _closeCreate,
+                onCreate: _createProject,
+              ),
             ),
           ),
         ],
       ),
     );
     Overlay.of(context).insert(entry);
+    _createAnim.forward(from: 0);
     setState(() => _createEntry = entry);
   }
 
   void _closeCreate() {
-    _createEntry?.remove();
+    final entry = _createEntry;
+    if (entry == null) return;
     _createEntry = null;
-    if (mounted) setState(() {});
+    if (mounted) setState(() {}); // flip the + rotation back immediately
+    _createAnim.reverse().whenComplete(entry.remove);
   }
 
   Future<void> _createProject(
@@ -260,6 +289,7 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen> {
           .archiveProject(
             folder,
             ref.read(icloudServiceProvider).archiveFolder,
+            sourceRoot: ref.read(settingsProvider).projectsFolder,
           );
       ref.invalidate(projectsProvider);
       if (mounted) _message('${project.name} offloaded to iCloud.');

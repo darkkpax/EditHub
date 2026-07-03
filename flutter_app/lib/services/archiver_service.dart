@@ -27,11 +27,13 @@ class ArchiverService {
   ];
 
   /// Archive ("Сгрузить") a single project folder into
-  /// `{archiveFolder}/{year}/{month}/{name}`.
+  /// `{archiveFolder}/{year}/{month}/{name}`. When [sourceRoot] is given, empty
+  /// year/month folders left behind under it are removed from the local disk.
   Future<void> archiveProject(
     String projectFolder,
-    String archiveFolder,
-  ) async {
+    String archiveFolder, {
+    String? sourceRoot,
+  }) async {
     final info = store.readProjectInfo(projectFolder);
     final folderName = p.basename(projectFolder);
 
@@ -48,8 +50,28 @@ class ArchiverService {
       );
     }
 
+    final parent = p.dirname(projectFolder);
     _moveDirectory(projectFolder, dest);
     _setCloudPinState(dest, onlineOnly: true);
+    _removeEmptyAncestors(parent, stopAt: sourceRoot);
+  }
+
+  /// Deletes now-empty parent folders (e.g. `{root}/2026/JULY`) left after a
+  /// project moves out, stopping at the first non-empty dir or at [stopAt].
+  void _removeEmptyAncestors(String dir, {String? stopAt}) {
+    final floor = stopAt == null ? null : p.normalize(stopAt);
+    var current = Directory(dir);
+    while (current.existsSync()) {
+      if (floor != null && p.equals(p.normalize(current.path), floor)) break;
+      try {
+        if (current.listSync(followLinks: false).isNotEmpty) break;
+        final parent = current.parent;
+        current.deleteSync();
+        current = parent;
+      } catch (_) {
+        break;
+      }
+    }
   }
 
   Future<void> restoreFromArchive(
@@ -107,7 +129,7 @@ class ArchiverService {
 
       if (!isCurrentMonth || age >= thresholdMs) {
         try {
-          await archiveProject(folder, archiveFolder);
+          await archiveProject(folder, archiveFolder, sourceRoot: projectsFolder);
         } catch (e) {
           // ignore: avoid_print
           print('Auto-archive failed for $folder: $e');

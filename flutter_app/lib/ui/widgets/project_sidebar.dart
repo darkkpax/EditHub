@@ -91,7 +91,10 @@ class _ProjectSidebarState extends State<ProjectSidebar> {
                   ),
           ),
           Positioned(
-            top: 48, // clear the floating top bar
+            // Glass runs continuously from y=0 up behind the floating top bar
+            // so there's no seam between the two panels; padding pushes the
+            // field below the 48px bar.
+            top: 0,
             left: 0,
             right: 0,
             child: GlassSurface(
@@ -100,7 +103,7 @@ class _ProjectSidebarState extends State<ProjectSidebar> {
               scrim: .48,
               border: false,
               borderRadius: BorderRadius.zero,
-              padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+              padding: const EdgeInsets.fromLTRB(14, 58, 14, 10),
               child: TextField(
                 onChanged: (value) => setState(() => _query = value),
                 decoration: const InputDecoration(

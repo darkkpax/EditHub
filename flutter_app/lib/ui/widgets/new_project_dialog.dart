@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../theme.dart';
 import '../design/glass_surface.dart';
@@ -7,14 +8,14 @@ import '../design/motion.dart';
 typedef CreateProjectCallback =
     Future<void> Function(String name, List<String> urls, String editor);
 
-/// Height shared by the three stacked controls (Name / Footage / Create) so
-/// they read as one equal-sized set.
-const double _kFieldHeight = 44;
+/// Shared height for every control so the stack reads as one set.
+const double _kFieldHeight = 40;
 
-// Bundled logos (were network URLs that rotted -> generic fallback icons).
+// Monochrome brand glyphs (simple-icons), tinted — not the full colored app
+// icons, per request.
 const _editorLogos = {
-  'davinci': 'assets/editors/davinci.png',
-  'premiere': 'assets/editors/premiere.png',
+  'davinci': 'assets/editors/davinci.svg',
+  'premiere': 'assets/editors/premiere.svg',
 };
 
 class NewProjectPopover extends StatefulWidget {
@@ -64,67 +65,60 @@ class _NewProjectPopoverState extends State<NewProjectPopover> {
 
   @override
   Widget build(BuildContext context) {
-    return TweenAnimationBuilder<double>(
+    return SizedBox(
       key: const Key('project-create-popover'),
-      tween: Tween(begin: 0, end: 1),
-      duration: const Duration(milliseconds: 260),
-      curve: Curves.easeOutBack,
-      builder: (context, value, child) => Transform.scale(
-        scale: .9 + .1 * value,
-        alignment: Alignment.bottomRight,
-        child: SizedBox(
-          width: 300,
-          child: GlassSurface(
-            blur: 30,
-            radius: 20,
-            scrim: .42,
-            frost: .13,
-            shadow: true,
-            padding: const EdgeInsets.all(14),
-            child: Opacity(opacity: value.clamp(0, 1), child: child),
-          ),
-        ),
-      ),
-      child: Material(
-        type: MaterialType.transparency,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Round project-type toggle (replaces the old close X).
-            Align(
-              alignment: Alignment.centerRight,
-              child: _EditorToggle(
-                editor: _editor,
-                onToggle: () => setState(
-                  () => _editor = _editor == 'davinci' ? 'premiere' : 'davinci',
-                ),
+      width: 300,
+      child: GlassSurface(
+        blur: 16,
+        radius: 20,
+        scrim: .5,
+        frost: .07,
+        shadow: true,
+        padding: const EdgeInsets.all(12),
+        child: Material(
+          type: MaterialType.transparency,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  _EditorToggle(
+                    editor: _editor,
+                    onToggle: () => setState(
+                      () => _editor =
+                          _editor == 'davinci' ? 'premiere' : 'davinci',
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _Field(
+                      key: const Key('project-name'),
+                      controller: _name,
+                      hint: 'Name',
+                      autofocus: true,
+                    ),
+                  ),
+                ],
               ),
-            ),
-            const SizedBox(height: 8),
-            _Field(
-              key: const Key('project-name'),
-              controller: _name,
-              hint: 'Name',
-              autofocus: true,
-            ),
-            const SizedBox(height: 8),
-            _Field(
-              key: const Key('project-url'),
-              controller: _url,
-              hint: 'Footage',
-              onSubmitted: (_) => _create(),
-            ),
-            if (_error != null) ...[
               const SizedBox(height: 8),
-              Text(
-                _error!,
-                style: const TextStyle(color: AppColors.bad, fontSize: 12),
+              _Field(
+                key: const Key('project-url'),
+                controller: _url,
+                hint: 'Footage',
+                onSubmitted: (_) => _create(),
               ),
+              if (_error != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  _error!,
+                  style: const TextStyle(color: AppColors.bad, fontSize: 12),
+                ),
+              ],
+              const SizedBox(height: 8),
+              _CreateButton(loading: _loading, onTap: _create),
             ],
-            const SizedBox(height: 8),
-            _CreateButton(loading: _loading, onTap: _create),
-          ],
+          ),
         ),
       ),
     );
@@ -153,21 +147,22 @@ class _Field extends StatelessWidget {
       autofocus: autofocus,
       onSubmitted: onSubmitted,
       textAlignVertical: TextAlignVertical.center,
+      style: const TextStyle(fontSize: 14),
       decoration: InputDecoration(
         hintText: hint,
         filled: true,
         fillColor: const Color(0x14FFFFFF),
         contentPadding: const EdgeInsets.symmetric(horizontal: 14),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(13),
+          borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide.none,
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(13),
+          borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide.none,
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(13),
+          borderRadius: BorderRadius.circular(12),
           borderSide: const BorderSide(color: AppColors.accent, width: 1.4),
         ),
       ),
@@ -188,7 +183,7 @@ class _CreateButton extends StatelessWidget {
       alignment: Alignment.center,
       decoration: BoxDecoration(
         color: AppColors.accent,
-        borderRadius: BorderRadius.circular(13),
+        borderRadius: BorderRadius.circular(12),
       ),
       child: loading
           ? const SizedBox(
@@ -218,17 +213,20 @@ class _EditorToggle extends StatelessWidget {
     message: editor == 'davinci' ? 'DaVinci Resolve' : 'Premiere Pro',
     child: PressableScale(
       onTap: onToggle,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        width: 38,
-        height: 38,
-        padding: const EdgeInsets.all(6),
+      child: Container(
+        width: _kFieldHeight,
+        height: _kFieldHeight,
+        padding: const EdgeInsets.all(9),
         decoration: BoxDecoration(
           color: const Color(0x14FFFFFF),
-          shape: BoxShape.circle,
+          borderRadius: BorderRadius.circular(12),
           border: Border.all(color: Colors.white.withValues(alpha: .16)),
         ),
-        child: Image.asset(_editorLogos[editor]!, fit: BoxFit.contain),
+        child: SvgPicture.asset(
+          _editorLogos[editor]!,
+          fit: BoxFit.contain,
+          colorFilter: const ColorFilter.mode(AppColors.txt, BlendMode.srcIn),
+        ),
       ),
     ),
   );

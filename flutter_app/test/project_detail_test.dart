@@ -17,14 +17,20 @@ void main() {
     sizeBytes: 1536,
   );
 
-  testWidgets('folder rows open through callback and size is formatted', (
+  testWidgets('folders drill in, files open through callback, size formatted', (
     tester,
   ) async {
     FolderEntry? opened;
+    final clip = FolderEntry(
+      name: 'clip.mp4',
+      path: r'D:\Videos\Project\FOOTAGE\clip.mp4',
+      isFolder: false,
+    );
     final folder = FolderEntry(
       name: 'FOOTAGE',
       path: r'D:\Videos\Project\FOOTAGE',
       isFolder: true,
+      children: [clip],
     );
     await tester.pumpWidget(
       MaterialApp(
@@ -51,8 +57,16 @@ void main() {
     expect(find.byKey(const Key('project-reveal-action')), findsOneWidget);
     expect(find.byKey(const Key('project-archive-action')), findsOneWidget);
     expect(find.byKey(const Key('project-delete-action')), findsOneWidget);
+
+    // Tapping a non-empty folder drills in (no Explorer), revealing its file.
     await tester.tap(find.text('FOOTAGE'));
-    expect(opened, same(folder));
+    await tester.pumpAndSettle();
+    expect(opened, isNull);
+    expect(find.text('clip.mp4'), findsOneWidget);
+
+    // Tapping the file opens it through the callback.
+    await tester.tap(find.text('clip.mp4'));
+    expect(opened, same(clip));
   });
 
   testWidgets('sidebar pins a blurred search header and animates rows', (

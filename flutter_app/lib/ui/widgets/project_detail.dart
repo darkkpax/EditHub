@@ -1,7 +1,10 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../models/models.dart';
 import '../../theme.dart';
+import '../design/glass_surface.dart';
 import '../design/motion.dart';
 
 class ProjectDetail extends StatelessWidget {
@@ -43,8 +46,15 @@ class ProjectDetail extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
+        GlassSurface(
+          blur: 18,
+          frost: .08,
+          scrim: .48,
+          border: false,
+          borderRadius: BorderRadius.zero,
+          // Top padding clears the floating 48px top bar; glass runs up behind
+          // it so there's no seam.
+          padding: const EdgeInsets.fromLTRB(18, 58, 18, 14),
           child: Row(
             children: [
               Container(
@@ -218,19 +228,9 @@ class ProjectDetail extends StatelessWidget {
                                 text: 'This project folder is empty or unavailable.',
                               );
                             }
-                            return ListView.separated(
-                              itemCount: entries.length,
-                              separatorBuilder: (_, _) =>
-                                  const SizedBox(height: 5),
-                              itemBuilder: (_, index) => FadeInUp(
-                                delay: Duration(
-                                  milliseconds: (index * 22).clamp(0, 220),
-                                ),
-                                child: _FolderTile(
-                                  entry: entries[index],
-                                  onTap: () => onEntryOpen(entries[index]),
-                                ),
-                              ),
+                            return _FilesBrowser(
+                              root: entries,
+                              onOpenFile: onEntryOpen,
                             );
                           },
                         ),
@@ -402,66 +402,202 @@ class _Stat extends StatelessWidget {
   );
 }
 
-class _FolderTile extends StatelessWidget {
-  const _FolderTile({required this.entry, required this.onTap});
-  final FolderEntry entry;
-  final VoidCallback onTap;
+/// Recursively counts files (not folders) inside an entry's loaded subtree.
+int _fileCount(FolderEntry e) {
+  var n = 0;
+  for (final c in e.children) {
+    n += c.isFolder ? _fileCount(c) : 1;
+  }
+  return n;
+}
+
+/// In-app folder browser: tapping a folder drills into it (never opens
+/// Explorer); an empty folder just shakes; a file opens in its default app.
+class _FilesBrowser extends StatefulWidget {
+  const _FilesBrowser({required this.root, required this.onOpenFile});
+  final List<FolderEntry> root;
+  final ValueChanged<FolderEntry> onOpenFile;
+
+  @override
+  State<_FilesBrowser> createState() => _FilesBrowserState();
+}
+
+class _FilesBrowserState extends State<_FilesBrowser> {
+  // Breadcrumb of entered folders; empty = project root.
+  final List<FolderEntry> _stack = [];
+
+  List<FolderEntry> get _entries =>
+      _stack.isEmpty ? widget.root : _stack.last.children;
 
   @override
   Widget build(BuildContext context) {
-    final isFolder = entry.isFolder;
-    return PressableScale(
-      onTap: onTap,
-      pressedScale: .985,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        decoration: BoxDecoration(
-          // Folders read as solid tiles; files sit flatter for clear separation.
-          color: isFolder ? const Color(0x12FFFFFF) : Colors.transparent,
-          border: Border.all(
-            color: isFolder ? AppColors.sep : const Color(0x0AFFFFFF),
-          ),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 30,
-              height: 30,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: isFolder
-                    ? AppColors.accent.withValues(alpha: .16)
-                    : Colors.transparent,
-                borderRadius: BorderRadius.circular(9),
-              ),
-              child: Icon(
-                isFolder
-                    ? Icons.folder_rounded
-                    : Icons.insert_drive_file_outlined,
-                color: isFolder ? AppColors.accent : AppColors.dim,
-                size: 17,
+    final entries = _entries;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (_stack.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: PressableScale(
+              onTap: () => setState(_stack.removeLast),
+              child: Row(
+                children: [
+                  const Icon(Icons.chevron_left_rounded,
+                      size: 20, color: AppColors.accent),
+                  const SizedBox(width: 4),
+                  Flexible(
+                    child: Text(
+                      _stack.last.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                entry.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: isFolder ? FontWeight.w600 : FontWeight.w400,
-                  color: isFolder ? AppColors.txt : AppColors.dim,
+          ),
+        Expanded(
+          child: entries.isEmpty
+              ? const _EmptyFolders(text: 'This folder is empty.')
+              : ListView.separated(
+                  itemCount: entries.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 5),
+                  itemBuilder: (_, index) {
+                    final entry = entries[index];
+                    return FadeInUp(
+                      delay:
+                          Duration(milliseconds: (index * 22).clamp(0, 220)),
+                      child: _FolderTile(
+                        entry: entry,
+                        fileCount: entry.isFolder ? _fileCount(entry) : 0,
+                        onEnter: () => setState(() => _stack.add(entry)),
+                        onOpenFile: () => widget.onOpenFile(entry),
+                      ),
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+class _FolderTile extends StatefulWidget {
+  const _FolderTile({
+    required this.entry,
+    required this.fileCount,
+    required this.onEnter,
+    required this.onOpenFile,
+  });
+  final FolderEntry entry;
+  final int fileCount;
+  final VoidCallback onEnter;
+  final VoidCallback onOpenFile;
+
+  @override
+  State<_FolderTile> createState() => _FolderTileState();
+}
+
+class _FolderTileState extends State<_FolderTile>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _shake = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 320),
+  );
+
+  @override
+  void dispose() {
+    _shake.dispose();
+    super.dispose();
+  }
+
+  void _onTap() {
+    if (!widget.entry.isFolder) {
+      widget.onOpenFile();
+      return;
+    }
+    _shake.forward(from: 0); // always give tactile feedback
+    if (widget.fileCount > 0) widget.onEnter(); // only drill in if non-empty
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isFolder = widget.entry.isFolder;
+    return AnimatedBuilder(
+      animation: _shake,
+      builder: (context, child) {
+        // Damped horizontal wobble.
+        final dx = _shake.isAnimating
+            ? 8 * (1 - _shake.value) * math.sin(_shake.value * math.pi * 4)
+            : 0.0;
+        return Transform.translate(offset: Offset(dx, 0), child: child);
+      },
+      child: PressableScale(
+        onTap: _onTap,
+        pressedScale: .985,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(
+            color: isFolder ? const Color(0x12FFFFFF) : Colors.transparent,
+            border: Border.all(
+              color: isFolder ? AppColors.sep : const Color(0x0AFFFFFF),
+            ),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 30,
+                height: 30,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: isFolder
+                      ? AppColors.accent.withValues(alpha: .16)
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                child: Icon(
+                  isFolder
+                      ? Icons.folder_rounded
+                      : Icons.insert_drive_file_outlined,
+                  color: isFolder ? AppColors.accent : AppColors.dim,
+                  size: 17,
                 ),
               ),
-            ),
-            Icon(
-              isFolder ? Icons.chevron_right_rounded : Icons.open_in_new_rounded,
-              color: AppColors.dim,
-              size: isFolder ? 18 : 14,
-            ),
-          ],
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  widget.entry.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: isFolder ? FontWeight.w600 : FontWeight.w400,
+                    color: isFolder ? AppColors.txt : AppColors.dim,
+                  ),
+                ),
+              ),
+              // File count only when the folder actually has files.
+              if (isFolder && widget.fileCount > 0) ...[
+                Text(
+                  '${widget.fileCount}',
+                  style: const TextStyle(color: AppColors.dim, fontSize: 12),
+                ),
+                const SizedBox(width: 6),
+              ],
+              Icon(
+                isFolder
+                    ? Icons.chevron_right_rounded
+                    : Icons.open_in_new_rounded,
+                color: AppColors.dim,
+                size: isFolder ? 18 : 14,
+              ),
+            ],
+          ),
         ),
       ),
     );
