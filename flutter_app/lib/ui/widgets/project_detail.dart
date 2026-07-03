@@ -464,6 +464,9 @@ class _FilesBrowserState extends State<_FilesBrowser> {
           child: entries.isEmpty
               ? const _EmptyFolders(text: 'This folder is empty.')
               : ListView.separated(
+                  // Bottom padding clears the floating "+" button so it never
+                  // overlaps the last folder rows.
+                  padding: const EdgeInsets.only(bottom: 74),
                   itemCount: entries.length,
                   separatorBuilder: (_, _) => const SizedBox(height: 5),
                   itemBuilder: (_, index) {
