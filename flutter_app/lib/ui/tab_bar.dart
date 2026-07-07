@@ -51,7 +51,6 @@ class AppTabBar extends ConsumerWidget {
         ],
       ),
     );
-    if (active == AppTab.projects) return bar;
     return GlassSurface(
       blur: 12,
       scrim: .16,
