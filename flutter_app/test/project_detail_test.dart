@@ -40,17 +40,24 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
-          body: ProjectDetail(
-            project: project,
-            folders: Future.value([folder, docs]),
-            size: Future.value(1536),
-            onEntryOpen: (entry) => opened = entry,
-            onOpen: () {},
-            onReveal: () {},
-            onArchive: () {},
-            onRestore: () {},
-            onDelete: () {},
-            onCancelDownload: () {},
+          body: Stack(
+            children: [
+              ProjectDetail(
+                project: project,
+                folders: Future.value([folder, docs]),
+                onEntryOpen: (entry) => opened = entry,
+                onCancelDownload: () {},
+              ),
+              ProjectHeader(
+                project: project,
+                size: Future.value(1536),
+                onOpen: () {},
+                onReveal: () {},
+                onArchive: () {},
+                onRestore: () {},
+                onDelete: () {},
+              ),
+            ],
           ),
         ),
       ),
@@ -75,16 +82,23 @@ void main() {
     expect(opened, same(clip));
   });
 
-  testWidgets('sidebar pins its search header and animates rows', (
+  testWidgets('sidebar animates rows; search field pins to header height', (
     tester,
   ) async {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
-          body: ProjectSidebar(
-            projects: [project],
-            selectedId: project.id,
-            onSelected: (_) {},
+          body: Column(
+            children: [
+              const ProjectSearchField(value: '', onChanged: _noop),
+              Expanded(
+                child: ProjectSidebar(
+                  projects: [project],
+                  selectedId: project.id,
+                  onSelected: (_) {},
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -93,4 +107,7 @@ void main() {
     expect(tester.getSize(find.byKey(const Key('sidebar-header'))).height, 116);
     expect(find.byType(FadeInUp), findsWidgets);
   });
+}
+
+void _noop(String _) {
 }

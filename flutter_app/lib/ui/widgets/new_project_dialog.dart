@@ -73,10 +73,12 @@ class _NewProjectPopoverState extends State<NewProjectPopover> {
       key: const Key('project-create-popover'),
       width: 300,
       child: GlassSurface(
-        blur: 16,
+        // Match the header strip's frosted glass (blur/scrim/frost), just
+        // rounded + shadowed since it floats.
+        blur: 12,
         radius: 20,
-        scrim: .5,
-        frost: .07,
+        scrim: .16,
+        frost: .05,
         shadow: true,
         padding: const EdgeInsets.all(12),
         child: Material(

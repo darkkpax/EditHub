@@ -2,6 +2,14 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+/// Shared iOS-like motion curves. `spring` overshoots slightly then settles;
+/// `springSoft` is a gentler settle with no visible bounce.
+class AppCurves {
+  AppCurves._();
+  static const spring = Cubic(0.34, 1.42, 0.5, 1.0);
+  static const springSoft = Cubic(0.22, 1.0, 0.36, 1.0);
+}
+
 class PressableScale extends StatefulWidget {
   const PressableScale({
     super.key,
@@ -35,8 +43,8 @@ class _PressableScaleState extends State<PressableScale> {
       onTapCancel: _active ? () => setState(() => _down = false) : null,
       child: AnimatedScale(
         scale: _down ? widget.pressedScale : 1,
-        duration: Duration(milliseconds: _down ? 90 : 160),
-        curve: _down ? Curves.easeOut : Curves.easeOutBack,
+        duration: Duration(milliseconds: _down ? 90 : 260),
+        curve: _down ? Curves.easeOut : AppCurves.spring,
         child: widget.child,
       ),
     ),
@@ -70,7 +78,7 @@ class _FadeInUpState extends State<FadeInUp>
   );
   late final Animation<double> _animation = CurvedAnimation(
     parent: _controller,
-    curve: Curves.easeOutCubic,
+    curve: AppCurves.springSoft,
   );
 
   @override

@@ -2,34 +2,60 @@ import 'package:flutter/material.dart';
 
 import '../../models/models.dart';
 import '../../theme.dart';
-import '../design/glass_surface.dart';
 import '../design/motion.dart';
 
-class ProjectSidebar extends StatefulWidget {
+/// Search field for the shared header strip. Transparent — the glass lives at
+/// the screen level so the whole top reads as one continuous surface.
+class ProjectSearchField extends StatelessWidget {
+  const ProjectSearchField({
+    super.key,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final String value;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    key: const Key('sidebar-header'),
+    height: 116,
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(14, 58, 14, 10),
+      child: TextField(
+        onChanged: onChanged,
+        decoration: const InputDecoration(
+          hintText: 'Search projects',
+          prefixIcon: Icon(Icons.search_rounded, size: 19),
+          isDense: true,
+        ),
+      ),
+    ),
+  );
+}
+
+/// Sidebar body: the grouped, filtered project list. Header (search) lives in
+/// the shared glass strip at the screen level.
+class ProjectSidebar extends StatelessWidget {
   const ProjectSidebar({
     super.key,
     required this.projects,
     required this.selectedId,
     required this.onSelected,
+    this.query = '',
   });
 
   final List<ProjectInfo> projects;
   final String? selectedId;
   final ValueChanged<ProjectInfo> onSelected;
-
-  @override
-  State<ProjectSidebar> createState() => _ProjectSidebarState();
-}
-
-class _ProjectSidebarState extends State<ProjectSidebar> {
-  String _query = '';
+  final String query;
 
   @override
   Widget build(BuildContext context) {
-    final filtered = widget.projects
+    final filtered = projects
         .where(
           (project) =>
-              project.name.toLowerCase().contains(_query.toLowerCase()),
+              project.name.toLowerCase().contains(query.toLowerCase()),
         )
         .toList();
     final groups = <String, List<ProjectInfo>>{};
@@ -85,42 +111,13 @@ class _ProjectSidebarState extends State<ProjectSidebar> {
                             ),
                             child: _ProjectRow(
                               project: project,
-                              selected: widget.selectedId == project.id,
-                              onTap: () => widget.onSelected(project),
+                              selected: selectedId == project.id,
+                              onTap: () => onSelected(project),
                             ),
                           ),
                       ],
                     ],
                   ),
-          ),
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: GlassSurface(
-              blur: 12,
-              scrim: .16,
-              frost: .05,
-              border: false,
-              borderRadius: BorderRadius.zero,
-              child: SizedBox(
-                key: const Key('sidebar-header'),
-                // Spans the full top strip (matching the detail header) so the
-                // sidebar has one uniform glass 0..116 — no seam under the bar.
-                height: 116,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 58, 14, 10),
-                  child: TextField(
-                    onChanged: (value) => setState(() => _query = value),
-                    decoration: const InputDecoration(
-                      hintText: 'Search projects',
-                      prefixIcon: Icon(Icons.search_rounded, size: 19),
-                      isDense: true,
-                    ),
-                  ),
-                ),
-              ),
-            ),
           ),
           const Positioned(
             key: Key('sidebar-divider'),

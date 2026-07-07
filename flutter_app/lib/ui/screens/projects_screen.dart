@@ -9,6 +9,7 @@ import '../../theme.dart';
 import '../widgets/new_project_dialog.dart';
 import '../widgets/project_detail.dart';
 import '../widgets/project_sidebar.dart';
+import '../design/glass_surface.dart';
 import '../design/motion.dart';
 
 class ProjectsScreen extends ConsumerStatefulWidget {
@@ -21,6 +22,7 @@ class ProjectsScreen extends ConsumerStatefulWidget {
 class _ProjectsScreenState extends ConsumerState<ProjectsScreen>
     with SingleTickerProviderStateMixin {
   String? _selectedId;
+  String _query = '';
   final _createLink = LayerLink();
   OverlayEntry? _createEntry;
   // Drives the create popover in AND out (fade + scale) so dismissal animates.
@@ -66,6 +68,7 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen>
             projects.firstOrNull;
         return Stack(
           children: [
+            // Bodies flow full-height under the shared glass header.
             Row(
               children: [
                 ProjectSidebar(
@@ -73,18 +76,20 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen>
                   selectedId: selected?.id,
                   onSelected: (project) =>
                       setState(() => _selectedId = project.id),
+                  query: _query,
                 ),
                 Expanded(
-                  // Detail fills full height; its own glass header clears the
-                  // floating top bar (like the sidebar), so no seam.
+                  // Only the file list animates on project switch — the header
+                  // stays put. Springy slide + fade for an iOS-like feel.
                   child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 220),
-                    switchInCurve: Curves.easeOutCubic,
+                    duration: const Duration(milliseconds: 380),
+                    switchInCurve: AppCurves.spring,
+                    switchOutCurve: Curves.easeIn,
                     transitionBuilder: (child, animation) => FadeTransition(
                       opacity: animation,
                       child: SlideTransition(
                         position: Tween<Offset>(
-                          begin: const Offset(.015, 0),
+                          begin: const Offset(.04, 0),
                           end: Offset.zero,
                         ).animate(animation),
                         child: child,
@@ -96,12 +101,6 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen>
                             key: ValueKey(selected.id),
                             project: selected,
                             folders: _folders(selected),
-                            size: _size(selected),
-                            onOpen: () => _open(selected),
-                            onReveal: () => _reveal(selected),
-                            onArchive: () => _archive(selected),
-                            onRestore: () => _restore(selected),
-                            onDelete: () => _delete(selected),
                             onEntryOpen: _openEntry,
                             onCancelDownload: () => ref
                                 .read(projectRepositoryProvider)
@@ -110,6 +109,49 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen>
                   ),
                 ),
               ],
+            ),
+            // Single full-width frosted header — one glass surface across the
+            // whole top strip, so there's no seam between the search and the
+            // project header. The window controls (transparent bar) sit on it.
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: GlassSurface(
+                blur: 12,
+                scrim: .16,
+                frost: .05,
+                border: false,
+                borderRadius: BorderRadius.zero,
+                child: SizedBox(
+                  height: 116,
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: 320,
+                        child: ProjectSearchField(
+                          value: _query,
+                          onChanged: (value) =>
+                              setState(() => _query = value),
+                        ),
+                      ),
+                      Expanded(
+                        child: selected == null
+                            ? const SizedBox.shrink()
+                            : ProjectHeader(
+                                project: selected,
+                                size: _size(selected),
+                                onOpen: () => _open(selected),
+                                onReveal: () => _reveal(selected),
+                                onArchive: () => _archive(selected),
+                                onRestore: () => _restore(selected),
+                                onDelete: () => _delete(selected),
+                              ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ),
             Positioned(
               right: 22,

@@ -2,32 +2,172 @@ import 'package:flutter/material.dart';
 
 import '../../models/models.dart';
 import '../../theme.dart';
-import '../design/glass_surface.dart';
 import '../design/motion.dart';
 
-class ProjectDetail extends StatelessWidget {
-  const ProjectDetail({
+/// The right-side project header — transparent content only (the shared glass
+/// strip lives at the screen level). Kept separate from [ProjectDetail] so it
+/// stays put while the file list below animates on project switch.
+class ProjectHeader extends StatelessWidget {
+  const ProjectHeader({
     super.key,
     required this.project,
-    required this.folders,
     required this.size,
     required this.onOpen,
     required this.onReveal,
     required this.onArchive,
     required this.onRestore,
     required this.onDelete,
-    required this.onCancelDownload,
-    required this.onEntryOpen,
   });
 
   final ProjectInfo project;
-  final Future<List<FolderEntry>> folders;
   final Future<int> size;
   final VoidCallback onOpen;
   final VoidCallback onReveal;
   final VoidCallback onArchive;
   final VoidCallback onRestore;
   final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final archived =
+        project.status == ProjectStatus.archive ||
+        project.status == ProjectStatus.incloud;
+    return SizedBox(
+      height: 116,
+      key: const Key('project-header'),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(18, 52, 18, 8),
+        child: Row(
+          children: [
+            Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                color: (archived ? AppColors.warn : AppColors.accent)
+                    .withValues(alpha: .14),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(
+                archived ? Icons.cloud_outlined : Icons.folder_rounded,
+                color: archived ? AppColors.warn : AppColors.accent,
+                size: 28,
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          project.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 9),
+                      _StatusBadge(status: project.status),
+                    ],
+                  ),
+                  Row(
+                    children: [
+                      Text(
+                        '${_month(project.month)} ${project.year ?? ''}',
+                        style: const TextStyle(
+                          color: AppColors.dim,
+                          fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      FutureBuilder<int>(
+                        future: size,
+                        builder: (_, snap) => Text(
+                          'Size ${snap.hasData ? _formatBytes(snap.data) : '…'}',
+                          style: const TextStyle(
+                            color: AppColors.dim,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 14),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              spacing: 8,
+              children: [
+                _PrimaryAction(
+                  key: const Key('project-open-action'),
+                  onTap: archived ? onRestore : onOpen,
+                  icon: archived
+                      ? Icons.cloud_download_rounded
+                      : Icons.play_arrow_rounded,
+                  label: archived ? 'Restore' : 'Open',
+                ),
+                _CircleAction(
+                  key: const Key('project-reveal-action'),
+                  tooltip: 'Show in file manager',
+                  onTap: onReveal,
+                  icon: Icons.folder_open_rounded,
+                ),
+                _CircleAction(
+                  key: const Key('project-archive-action'),
+                  tooltip: archived ? 'Already in iCloud' : 'Offload to iCloud',
+                  onTap: archived ? null : onArchive,
+                  icon: Icons.cloud_upload_rounded,
+                ),
+                _CircleAction(
+                  key: const Key('project-delete-action'),
+                  tooltip: 'Delete project',
+                  onTap: onDelete,
+                  icon: Icons.delete_outline_rounded,
+                  danger: true,
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _month(String? value) {
+    if (value == null || value.isEmpty) return '';
+    return '${value[0]}${value.substring(1).toLowerCase()}';
+  }
+
+  String _formatBytes(int? bytes) {
+    if (bytes == null || bytes == 0) return '0 B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    if (bytes < 1024 * 1024 * 1024) {
+      return '${(bytes / 1024 / 1024).toStringAsFixed(1)} MB';
+    }
+    return '${(bytes / 1024 / 1024 / 1024).toStringAsFixed(2)} GB';
+  }
+}
+
+/// The file list below the header. Body only — no header, no glass.
+class ProjectDetail extends StatelessWidget {
+  const ProjectDetail({
+    super.key,
+    required this.project,
+    required this.folders,
+    required this.onCancelDownload,
+    required this.onEntryOpen,
+  });
+
+  final ProjectInfo project;
+  final Future<List<FolderEntry>> folders;
   final VoidCallback onCancelDownload;
   final ValueChanged<FolderEntry> onEntryOpen;
 
@@ -40,123 +180,6 @@ class ProjectDetail extends StatelessWidget {
         ? 0.0
         : project.downloadProgress.values.reduce((a, b) => a + b) /
               project.downloadProgress.length;
-
-    final header = SizedBox(
-      height: 116,
-      key: const Key('project-header'),
-      child: GlassSurface(
-        blur: 12,
-        scrim: .16,
-        frost: .05,
-        border: false,
-        borderRadius: BorderRadius.zero,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(18, 52, 18, 8),
-          child: Row(
-            children: [
-              Container(
-                width: 56,
-                height: 56,
-                decoration: BoxDecoration(
-                  color: (archived ? AppColors.warn : AppColors.accent)
-                      .withValues(alpha: .14),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(
-                  archived ? Icons.cloud_outlined : Icons.folder_rounded,
-                  color: archived ? AppColors.warn : AppColors.accent,
-                  size: 28,
-                ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            project.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 9),
-                        _StatusBadge(status: project.status),
-                      ],
-                    ),
-                    Row(
-                      children: [
-                        Text(
-                          '${_month(project.month)} ${project.year ?? ''}',
-                          style: const TextStyle(
-                            color: AppColors.dim,
-                            fontSize: 12,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        FutureBuilder<int>(
-                          future: size,
-                          builder: (_, snap) => Text(
-                            'Size ${snap.hasData ? _formatBytes(snap.data) : '…'}',
-                            style: const TextStyle(
-                              color: AppColors.dim,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 14),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                spacing: 8,
-                children: [
-                  _PrimaryAction(
-                    key: const Key('project-open-action'),
-                    onTap: archived ? onRestore : onOpen,
-                    icon: archived
-                        ? Icons.cloud_download_rounded
-                        : Icons.play_arrow_rounded,
-                    label: archived ? 'Restore' : 'Open',
-                  ),
-                  _CircleAction(
-                    key: const Key('project-reveal-action'),
-                    tooltip: 'Show in file manager',
-                    onTap: onReveal,
-                    icon: Icons.folder_open_rounded,
-                  ),
-                  _CircleAction(
-                    key: const Key('project-archive-action'),
-                    tooltip: archived
-                        ? 'Already in iCloud'
-                        : 'Offload to iCloud',
-                    onTap: archived ? null : onArchive,
-                    icon: Icons.cloud_upload_rounded,
-                  ),
-                  _CircleAction(
-                    key: const Key('project-delete-action'),
-                    tooltip: 'Delete project',
-                    onTap: onDelete,
-                    icon: Icons.delete_outline_rounded,
-                    danger: true,
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
 
     final contentTop = project.status == ProjectStatus.downloading
         ? 184.0
@@ -234,23 +257,8 @@ class ProjectDetail extends StatelessWidget {
               ),
             ),
           ),
-        Positioned(top: 0, left: 0, right: 0, child: header),
       ],
     );
-  }
-
-  String _month(String? value) {
-    if (value == null || value.isEmpty) return '';
-    return '${value[0]}${value.substring(1).toLowerCase()}';
-  }
-
-  String _formatBytes(int? bytes) {
-    if (bytes == null || bytes == 0) return '0 B';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    if (bytes < 1024 * 1024 * 1024) {
-      return '${(bytes / 1024 / 1024).toStringAsFixed(1)} MB';
-    }
-    return '${(bytes / 1024 / 1024 / 1024).toStringAsFixed(2)} GB';
   }
 }
 
