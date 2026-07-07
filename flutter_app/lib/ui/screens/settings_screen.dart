@@ -61,26 +61,7 @@ class SettingsScreen extends ConsumerWidget {
           onChanged: (v) => notifier.update((s) => s.copyWith(premierePath: v)),
         ),
         const SizedBox(height: 12),
-        FilledButton.icon(
-          onPressed: () async {
-            try {
-              await ref.read(googleDriveAuthProvider).signIn();
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Google Drive connected')),
-                );
-              }
-            } catch (error) {
-              if (context.mounted) {
-                ScaffoldMessenger.of(
-                  context,
-                ).showSnackBar(SnackBar(content: Text(error.toString())));
-              }
-            }
-          },
-          icon: const Icon(Icons.add_to_drive),
-          label: const Text('Connect Google Drive'),
-        ),
+        const _GoogleDriveRow(),
         const SizedBox(height: 12),
         _NumberRow(
           label: 'Auto-offload after (days)',
@@ -89,6 +70,67 @@ class SettingsScreen extends ConsumerWidget {
               notifier.update((s) => s.copyWith(autoArchiveDays: v)),
         ),
       ],
+    );
+  }
+}
+
+/// Connect button that flips to a "connected" state once signed in.
+class _GoogleDriveRow extends ConsumerStatefulWidget {
+  const _GoogleDriveRow();
+
+  @override
+  ConsumerState<_GoogleDriveRow> createState() => _GoogleDriveRowState();
+}
+
+class _GoogleDriveRowState extends ConsumerState<_GoogleDriveRow> {
+  late bool _connected = ref.read(googleDriveAuthProvider).isSignedIn;
+  bool _busy = false;
+
+  Future<void> _connect() async {
+    setState(() => _busy = true);
+    try {
+      await ref.read(googleDriveAuthProvider).signIn();
+      if (mounted) {
+        setState(() =>
+            _connected = ref.read(googleDriveAuthProvider).isSignedIn);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Google Drive connected')),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_connected) {
+      return Row(
+        children: [
+          const Icon(Icons.check_circle, color: AppColors.good, size: 20),
+          const SizedBox(width: 8),
+          const Text(
+            'Google Drive connected',
+            style: TextStyle(color: AppColors.txt, fontSize: 13),
+          ),
+          const Spacer(),
+          TextButton(
+            onPressed: _busy ? null : _connect,
+            child: const Text('Reconnect'),
+          ),
+        ],
+      );
+    }
+    return FilledButton.icon(
+      onPressed: _busy ? null : _connect,
+      icon: const Icon(Icons.add_to_drive),
+      label: const Text('Connect Google Drive'),
     );
   }
 }

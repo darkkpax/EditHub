@@ -27,7 +27,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          projectsProvider.overrideWith((_) async => [project]),
+          projectsProvider.overrideWith((_) => Stream.value([project])),
         ],
         child: const MaterialApp(home: Scaffold(body: ProjectsScreen())),
       ),
@@ -53,7 +53,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          projectsProvider.overrideWith((_) async => <ProjectInfo>[]),
+          projectsProvider.overrideWith((_) => Stream.value(<ProjectInfo>[])),
         ],
         child: const MaterialApp(home: Scaffold(body: ProjectsScreen())),
       ),

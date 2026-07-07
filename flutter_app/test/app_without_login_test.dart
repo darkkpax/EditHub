@@ -7,7 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test('tray menu stays compact', () {
-    expect(kTrayMenuSize, const Size(176, 72));
+    expect(kTrayMenuSize, const Size(184, 92));
   });
 
   testWidgets('opens the project shell without requiring a login', (
@@ -16,7 +16,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          projectsProvider.overrideWith((_) async => <ProjectInfo>[]),
+          projectsProvider.overrideWith((_) => Stream.value(<ProjectInfo>[])),
         ],
         child: const MaterialApp(home: EditHubApp()),
       ),

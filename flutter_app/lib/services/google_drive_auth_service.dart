@@ -26,7 +26,14 @@ class GoogleDriveAuthService {
   }
 
   bool get isConfigured => (_read()['clientId'] as String? ?? '').isNotEmpty;
-  bool get isSignedIn => (_read()['refreshToken'] as String? ?? '').isNotEmpty;
+  bool get isSignedIn {
+    final c = _read();
+    // sign-in stores Google's snake_case `refresh_token`; the refresh path
+    // also mirrors it to camelCase `refreshToken` — accept either.
+    final refresh =
+        (c['refresh_token'] ?? c['refreshToken']) as String? ?? '';
+    return refresh.isNotEmpty;
+  }
 
   Future<void> signIn() async {
     final credentials = _read();

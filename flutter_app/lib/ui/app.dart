@@ -15,7 +15,9 @@ import 'screens/projects_screen.dart';
 import 'screens/settings_screen.dart';
 
 // Size of the custom tray popup (in place of the native Win32 menu).
-const kTrayMenuSize = Size(176, 72);
+// Tall enough to hold both 36px items + spacing + padding without clipping the
+// bottom (Quit) item on high-DPI displays.
+const kTrayMenuSize = Size(184, 92);
 
 class EditHubApp extends ConsumerStatefulWidget {
   const EditHubApp({super.key});
@@ -49,6 +51,7 @@ class _EditHubAppState extends ConsumerState<EditHubApp>
     if (_trayMenu) setState(() => _trayMenu = false);
     await windowManager.setAlwaysOnTop(false);
     await windowManager.setSkipTaskbar(false);
+    await windowManager.setResizable(true);
     await windowManager.setMinimumSize(kEditHubMinimumSize);
     await windowManager.setSize(kEditHubWindowSize);
     await windowManager.center();
@@ -63,23 +66,37 @@ class _EditHubAppState extends ConsumerState<EditHubApp>
 
   /// Show the app-styled menu as a small window anchored above the cursor.
   Future<void> _showTrayMenu() async {
+    final w = kTrayMenuSize.width, h = kTrayMenuSize.height;
+    // Anchor above/left of the cursor; if the cursor read fails, fall back to
+    // the bottom-right of the primary display (where the tray lives) so a
+    // transient failure still shows the menu instead of launching the app.
+    double x, y;
     try {
       final cursor = await screenRetriever.getCursorScreenPoint();
-      final w = kTrayMenuSize.width, h = kTrayMenuSize.height;
-      final x = (cursor.dx - w).clamp(8.0, double.infinity);
-      final y = (cursor.dy - h - 8).clamp(8.0, double.infinity);
-      setState(() => _trayMenu = true);
-      await windowManager.setMinimumSize(const Size(0, 0));
-      await windowManager.setSize(kTrayMenuSize);
-      await windowManager.setPosition(Offset(x, y));
-      await windowManager.setAlwaysOnTop(true);
-      await windowManager.setSkipTaskbar(true);
-      await windowManager.show();
-      await windowManager.focus();
+      x = cursor.dx - w;
+      y = cursor.dy - h - 8;
     } catch (_) {
-      // If positioning fails for any reason, fall back to opening the app.
-      await _openApp();
+      try {
+        final display = await screenRetriever.getPrimaryDisplay();
+        final size = display.visibleSize ?? display.size;
+        x = size.width - w - 12;
+        y = size.height - h - 12;
+      } catch (_) {
+        x = 100;
+        y = 100;
+      }
     }
+    x = x.clamp(8.0, double.infinity);
+    y = y.clamp(8.0, double.infinity);
+    setState(() => _trayMenu = true);
+    await windowManager.setMinimumSize(const Size(0, 0));
+    await windowManager.setResizable(false);
+    await windowManager.setSize(kTrayMenuSize);
+    await windowManager.setPosition(Offset(x, y));
+    await windowManager.setAlwaysOnTop(true);
+    await windowManager.setSkipTaskbar(true);
+    await windowManager.show();
+    await windowManager.focus();
   }
 
   Future<void> _dismissTrayMenu() async {
@@ -87,6 +104,7 @@ class _EditHubAppState extends ConsumerState<EditHubApp>
     setState(() => _trayMenu = false);
     await windowManager.setAlwaysOnTop(false);
     await windowManager.setSkipTaskbar(false);
+    await windowManager.setResizable(true);
     await windowManager.setMinimumSize(kEditHubMinimumSize);
     await windowManager.setSize(kEditHubWindowSize);
     await windowManager.hide();
@@ -161,9 +179,10 @@ class _TrayMenu extends StatelessWidget {
     return Scaffold(
       backgroundColor: AppColors.card,
       body: Padding(
-        padding: const EdgeInsets.all(4),
+        padding: const EdgeInsets.all(6),
         child: Column(
           mainAxisSize: MainAxisSize.min,
+          spacing: 4,
           children: [
             _TrayItem(
               icon: Icons.open_in_full_rounded,
@@ -213,7 +232,7 @@ class _TrayItemState extends State<_TrayItem> {
         pressedScale: .97,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 120),
-          height: 32,
+          height: 36,
           padding: const EdgeInsets.symmetric(horizontal: 8),
           decoration: BoxDecoration(
             color: _hover

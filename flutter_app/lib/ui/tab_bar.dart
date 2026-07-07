@@ -4,7 +4,6 @@ import 'package:window_manager/window_manager.dart';
 
 import '../state/providers.dart';
 import '../theme.dart';
-import 'design/glass_surface.dart';
 import 'design/motion.dart';
 
 /// Top bar: draggable window region + icon-only tabs + window controls.
@@ -51,18 +50,11 @@ class AppTabBar extends ConsumerWidget {
         ],
       ),
     );
-    // Blur only, no fill: the header glass beneath (0..116) provides the tint,
-    // so the top bar and headers read as one continuous surface — no seam at
-    // the bar's bottom edge. On Settings (no header glass) the blur still
-    // frosts content scrolling under the bar.
-    return GlassSurface(
-      blur: 12,
-      scrim: 0,
-      frost: 0,
-      border: false,
-      borderRadius: BorderRadius.zero,
-      child: bar,
-    );
+    // Fully transparent — no blur/fill of its own. The header glass beneath
+    // (sidebar + detail headers, both 0..116) is the single surface across the
+    // whole top strip, so the window controls sit on that one continuous glass
+    // with no seam at the bar's bottom edge.
+    return bar;
   }
 }
 

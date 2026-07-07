@@ -106,12 +106,21 @@ final autoArchiveProvider = Provider<void>((ref) {
 });
 
 /// Projects scanned from the configured projects folder.
-final projectsProvider = FutureProvider<List<ProjectInfo>>((ref) async {
+///
+/// Two-phase so first launch isn't blocked on iCloud: the local folder scan
+/// (fast) is emitted immediately, then the iCloud archive migration + scan
+/// (slow on cold start — isolate spawn + on-demand placeholder files) runs off
+/// the first-paint path and the combined list is emitted when it's ready.
+final projectsProvider = StreamProvider<List<ProjectInfo>>((ref) async* {
   final settings = ref.watch(settingsProvider);
   final store = ref.read(projectStoreProvider);
-  final projects = store.listProjects(settings.projectsFolder);
   final icloud = ref.watch(icloudServiceProvider);
+
+  final local = store.listProjects(settings.projectsFolder);
+  yield local;
+
   await Isolate.run(() => ICloudService.prepareArchiveAt(icloud.icloudPath));
+  final projects = [...local];
   final seen = projects.map((project) => project.id).toSet();
   for (final archived in icloud.archiveSearchFolders) {
     projects.addAll(
@@ -120,5 +129,5 @@ final projectsProvider = FutureProvider<List<ProjectInfo>>((ref) async {
           .where((project) => seen.add(project.id)),
     );
   }
-  return projects;
+  yield projects;
 });
