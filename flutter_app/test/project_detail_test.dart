@@ -69,7 +69,7 @@ void main() {
     expect(opened, same(clip));
   });
 
-  testWidgets('sidebar pins a blurred search header and animates rows', (
+  testWidgets('sidebar pins its search header and animates rows', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -84,7 +84,7 @@ void main() {
       ),
     );
 
-    expect(find.byType(BackdropFilter), findsOneWidget);
+    expect(tester.getSize(find.byKey(const Key('sidebar-header'))).height, 68);
     expect(find.byType(FadeInUp), findsWidgets);
   });
 }
