@@ -18,6 +18,7 @@ const installerArguments = [
   '/VERYSILENT',
   '/NORESTART',
   '/RESTARTAPPLICATIONS',
+  '/FORCECLOSEAPPLICATIONS',
 ];
 
 /// The newest published version + its installer URL, pulled from the appcast.

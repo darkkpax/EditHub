@@ -59,7 +59,7 @@ Future<void> main() async {
     final settings = SettingsService().load();
     ProjectStore().sweepExtractingDirs([
       settings.projectsFolder,
-      ICloudService.prepareArchiveAt(settings.icloudPath),
+      ICloudService.archiveFolderAt(settings.icloudPath),
     ]);
   } catch (_) {}
 

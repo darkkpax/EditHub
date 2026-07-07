@@ -24,5 +24,6 @@ void main() {
 
   test('silent updater asks the installer to restart the app', () {
     expect(installerArguments, contains('/RESTARTAPPLICATIONS'));
+    expect(installerArguments, contains('/FORCECLOSEAPPLICATIONS'));
   });
 }

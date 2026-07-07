@@ -55,7 +55,10 @@ class ICloudService {
 
   /// Single source of truth for archived projects: `{icloud}/edithub/Videos`,
   /// then sorted `/{year}/{month}/{project}` by the archiver.
-  String get archiveFolder => p.join(icloudPath, 'edithub', 'Videos');
+  String get archiveFolder => archiveFolderAt(icloudPath);
+
+  static String archiveFolderAt(String cloudPath) =>
+      p.join(cloudPath, 'edithub', 'Videos');
 
   List<String> get archiveSearchFolders => {
     archiveFolder,
@@ -69,7 +72,7 @@ class ICloudService {
   /// Consolidates the legacy roots used by older builds and normalizes month
   /// folders without touching project contents.
   static String prepareArchiveAt(String cloudPath) {
-    final canonical = p.join(cloudPath, 'edithub', 'Videos');
+    final canonical = archiveFolderAt(cloudPath);
     Directory(canonical).createSync(recursive: true);
     final roots = {
       p.join(cloudPath, 'Videos'),

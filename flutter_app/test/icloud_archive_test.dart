@@ -8,6 +8,19 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 
 void main() {
+  test('resolving the archive path does no startup migration work', () {
+    final cloud = Directory.systemTemp.createTempSync('edithub_startup_');
+    addTearDown(() => cloud.deleteSync(recursive: true));
+    final legacy = Directory(p.join(cloud.path, 'Videos', '2025', 'JUNE'))
+      ..createSync(recursive: true);
+
+    final archive = ICloudService.archiveFolderAt(cloud.path);
+
+    expect(archive, p.join(cloud.path, 'edithub', 'Videos'));
+    expect(legacy.existsSync(), isTrue);
+    expect(Directory(archive).existsSync(), isFalse);
+  });
+
   test('migrates legacy archives into edithub Videos year MM', () {
     final cloud = Directory.systemTemp.createTempSync('edithub_cloud_');
     addTearDown(() => cloud.deleteSync(recursive: true));
