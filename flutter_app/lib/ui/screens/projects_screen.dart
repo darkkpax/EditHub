@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,7 +11,6 @@ import '../widgets/new_project_dialog.dart';
 import '../widgets/project_detail.dart';
 import '../widgets/project_sidebar.dart';
 import '../design/motion.dart';
-import '../design/glass_surface.dart';
 
 class ProjectsScreen extends ConsumerStatefulWidget {
   const ProjectsScreen({super.key});
@@ -71,23 +71,15 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen>
               top: 0,
               left: 0,
               right: 0,
-              height: 124,
-              child: ShaderMask(
-                blendMode: BlendMode.dstIn,
-                shaderCallback: (bounds) => const LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  stops: [0, .88, 1],
-                  colors: [Colors.white, Colors.white, Colors.transparent],
-                ).createShader(bounds),
-                child: const GlassSurface(
-                  key: Key('projects-header-glass'),
-                  blur: 22,
-                  frost: .08,
-                  scrim: .48,
-                  border: false,
-                  borderRadius: BorderRadius.zero,
-                  child: SizedBox.expand(),
+              height: 116,
+              child: ClipRect(
+                child: BackdropFilter(
+                  key: const Key('projects-header-glass'),
+                  filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+                  child: const ColoredBox(
+                    color: Color(0xC72C2C2E),
+                    child: SizedBox.expand(),
+                  ),
                 ),
               ),
             ),

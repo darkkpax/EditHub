@@ -40,10 +40,7 @@ class _ProjectSidebarState extends State<ProjectSidebar> {
     return Container(
       key: const Key('projects-sidebar'),
       width: 320,
-      decoration: const BoxDecoration(
-        color: Color(0x06FFFFFF),
-        border: Border(right: BorderSide(color: AppColors.sep)),
-      ),
+      color: const Color(0x06FFFFFF),
       child: Stack(
         children: [
           Positioned.fill(
@@ -108,6 +105,14 @@ class _ProjectSidebarState extends State<ProjectSidebar> {
                 ),
               ),
             ),
+          ),
+          const Positioned(
+            key: Key('sidebar-divider'),
+            top: 116,
+            right: 0,
+            bottom: 0,
+            width: 1,
+            child: ColoredBox(color: AppColors.sep),
           ),
         ],
       ),

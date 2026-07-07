@@ -93,12 +93,27 @@ class ProjectDetail extends StatelessWidget {
                             ],
                           ),
                           const SizedBox(height: 4),
-                          Text(
-                            '${_month(project.month)} ${project.year ?? ''}',
-                            style: const TextStyle(
-                              color: AppColors.dim,
-                              fontSize: 11,
-                            ),
+                          Row(
+                            children: [
+                              Text(
+                                '${_month(project.month)} ${project.year ?? ''}',
+                                style: const TextStyle(
+                                  color: AppColors.dim,
+                                  fontSize: 11,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              FutureBuilder<int>(
+                                future: size,
+                                builder: (_, snap) => Text(
+                                  'Size ${snap.hasData ? _formatBytes(snap.data) : '…'}',
+                                  style: const TextStyle(
+                                    color: AppColors.dim,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),
@@ -177,25 +192,6 @@ class ProjectDetail extends StatelessWidget {
               ],
             ),
           ),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 11),
-          decoration: const BoxDecoration(
-            border: Border(bottom: BorderSide(color: AppColors.sep)),
-          ),
-          child: Wrap(
-            spacing: 10,
-            children: [
-              _Stat(label: 'Links', value: '${project.footageUrls.length}'),
-              FutureBuilder<int>(
-                future: size,
-                builder: (_, snap) => _Stat(
-                  label: 'Size',
-                  value: snap.hasData ? _formatBytes(snap.data) : '…',
-                ),
-              ),
-            ],
-          ),
-        ),
         Expanded(
           child: Padding(
             padding: const EdgeInsets.all(18),
@@ -388,23 +384,6 @@ class _StatusBadge extends StatelessWidget {
       ),
     );
   }
-}
-
-class _Stat extends StatelessWidget {
-  const _Stat({required this.label, required this.value});
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-    decoration: BoxDecoration(
-      color: const Color(0x0AFFFFFF),
-      border: Border.all(color: AppColors.sep),
-      borderRadius: BorderRadius.circular(9),
-    ),
-    child: Text('$label  $value', style: const TextStyle(fontSize: 12)),
-  );
 }
 
 /// Recursively counts files (not folders) inside an entry's loaded subtree.

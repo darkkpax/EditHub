@@ -42,6 +42,10 @@ void main() {
     expect(find.byKey(const Key('projects-header-glass')), findsOneWidget);
     expect(tester.getSize(find.byKey(const Key('sidebar-header'))).height, 68);
     expect(tester.getSize(find.byKey(const Key('project-header'))).height, 68);
+    expect(find.byType(ShaderMask), findsNothing);
+    expect(find.textContaining('Links'), findsNothing);
+    expect(find.textContaining('Size'), findsOneWidget);
+    expect(tester.getTopLeft(find.byKey(const Key('sidebar-divider'))).dy, 116);
   });
 
   testWidgets('new-project button opens an anchored glass popup', (
