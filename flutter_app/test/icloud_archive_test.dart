@@ -21,7 +21,7 @@ void main() {
     expect(Directory(archive).existsSync(), isFalse);
   });
 
-  test('migrates legacy archives into edithub Videos year MM', () {
+  test('migrates legacy archives into uppercase month folders', () {
     final cloud = Directory.systemTemp.createTempSync('edithub_cloud_');
     addTearDown(() => cloud.deleteSync(recursive: true));
     final old = Directory(
@@ -42,17 +42,23 @@ void main() {
     final archive = ICloudService.prepareArchiveAt(cloud.path);
 
     expect(
-      Directory(p.join(archive, '2025', '06', 'Old project')).existsSync(),
+      Directory(p.join(archive, '2025', 'JUNE', 'Old project')).existsSync(),
       isTrue,
     );
     expect(ProjectStore().listArchivedProjects(archive), hasLength(1));
   });
 
-  test('new archives use a numeric month folder', () async {
+  test('new archives remove footage and preserve everything else', () async {
     final root = Directory.systemTemp.createTempSync('edithub_archive_');
     addTearDown(() => root.deleteSync(recursive: true));
     final project = Directory(p.join(root.path, 'local', 'Project'))
       ..createSync(recursive: true);
+    final footage = Directory(p.join(project.path, 'FOOTAGE'))
+      ..createSync(recursive: true);
+    File(p.join(footage.path, 'raw.mov')).writeAsStringSync('raw');
+    final ready = Directory(p.join(project.path, 'READY VIDEOS'))
+      ..createSync(recursive: true);
+    File(p.join(ready.path, 'final.mp4')).writeAsStringSync('final');
     final store = ProjectStore();
     store.writeProjectInfo(
       project.path,
@@ -70,11 +76,20 @@ void main() {
       store,
     ).archiveProject(project.path, p.join(root.path, 'edithub', 'Videos'));
 
-    expect(
-      Directory(
-        p.join(root.path, 'edithub', 'Videos', '2026', '07', 'Project'),
-      ).existsSync(),
-      isTrue,
+    final archived = p.join(
+      root.path,
+      'edithub',
+      'Videos',
+      '2026',
+      'JULY',
+      'Project',
     );
+    expect(Directory(archived).existsSync(), isTrue);
+    expect(Directory(p.join(archived, 'FOOTAGE')).existsSync(), isFalse);
+    expect(
+      File(p.join(archived, 'READY VIDEOS', 'final.mp4')).readAsStringSync(),
+      'final',
+    );
+    expect(File(p.join(archived, '.edithub.json')).existsSync(), isTrue);
   });
 }

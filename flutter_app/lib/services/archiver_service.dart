@@ -52,6 +52,12 @@ class ArchiverService {
 
     final parent = p.dirname(projectFolder);
     _moveDirectory(projectFolder, dest);
+    for (final entry in Directory(dest).listSync(followLinks: false)) {
+      if (entry is Directory &&
+          p.basename(entry.path).toUpperCase() == 'FOOTAGE') {
+        entry.deleteSync(recursive: true);
+      }
+    }
     _setCloudPinState(dest, onlineOnly: true);
     _removeEmptyAncestors(parent, stopAt: sourceRoot);
   }
