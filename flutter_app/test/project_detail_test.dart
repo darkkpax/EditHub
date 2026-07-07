@@ -90,7 +90,7 @@ void main() {
       ),
     );
 
-    expect(tester.getSize(find.byKey(const Key('sidebar-header'))).height, 68);
+    expect(tester.getSize(find.byKey(const Key('sidebar-header'))).height, 116);
     expect(find.byType(FadeInUp), findsWidgets);
   });
 }

@@ -94,7 +94,7 @@ class _ProjectSidebarState extends State<ProjectSidebar> {
                   ),
           ),
           Positioned(
-            top: 48,
+            top: 0,
             left: 0,
             right: 0,
             child: GlassSurface(
@@ -105,9 +105,11 @@ class _ProjectSidebarState extends State<ProjectSidebar> {
               borderRadius: BorderRadius.zero,
               child: SizedBox(
                 key: const Key('sidebar-header'),
-                height: 68,
+                // Spans the full top strip (matching the detail header) so the
+                // sidebar has one uniform glass 0..116 — no seam under the bar.
+                height: 116,
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+                  padding: const EdgeInsets.fromLTRB(14, 58, 14, 10),
                   child: TextField(
                     onChanged: (value) => setState(() => _query = value),
                     decoration: const InputDecoration(

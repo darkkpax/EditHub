@@ -39,8 +39,7 @@ void main() {
     expect(find.text('Project files'), findsNothing);
     expect(find.byTooltip('New project'), findsOneWidget);
 
-    expect(find.byKey(const Key('projects-header-glass')), findsOneWidget);
-    expect(tester.getSize(find.byKey(const Key('sidebar-header'))).height, 68);
+    expect(tester.getSize(find.byKey(const Key('sidebar-header'))).height, 116);
     expect(tester.getSize(find.byKey(const Key('project-header'))).height, 116);
     expect(find.byType(ShaderMask), findsNothing);
     expect(find.textContaining('Links'), findsNothing);

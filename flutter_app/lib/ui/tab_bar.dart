@@ -51,10 +51,14 @@ class AppTabBar extends ConsumerWidget {
         ],
       ),
     );
+    // Blur only, no fill: the header glass beneath (0..116) provides the tint,
+    // so the top bar and headers read as one continuous surface — no seam at
+    // the bar's bottom edge. On Settings (no header glass) the blur still
+    // frosts content scrolling under the bar.
     return GlassSurface(
       blur: 12,
-      scrim: .16,
-      frost: .05,
+      scrim: 0,
+      frost: 0,
       border: false,
       borderRadius: BorderRadius.zero,
       child: bar,

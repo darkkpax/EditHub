@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -67,22 +66,6 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen>
             projects.firstOrNull;
         return Stack(
           children: [
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              height: 116,
-              child: ClipRect(
-                child: BackdropFilter(
-                  key: const Key('projects-header-glass'),
-                  filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
-                  child: const ColoredBox(
-                    color: Color(0xC72C2C2E),
-                    child: SizedBox.expand(),
-                  ),
-                ),
-              ),
-            ),
             Row(
               children: [
                 ProjectSidebar(

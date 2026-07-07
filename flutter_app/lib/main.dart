@@ -105,6 +105,8 @@ class _EditHubRootState extends State<EditHubRoot> {
       navigatorKey: _navigatorKey,
       debugShowCheckedModeBanner: false,
       theme: buildTheme(),
+      // Hide scrollbars app-wide (scrolling still works, drag/wheel unaffected).
+      scrollBehavior: const MaterialScrollBehavior().copyWith(scrollbars: false),
       home: const EditHubApp(),
     );
   }
