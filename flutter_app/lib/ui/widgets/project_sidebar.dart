@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../../models/models.dart';
 import '../../theme.dart';
-import '../design/glass_surface.dart';
 import '../design/motion.dart';
 
 class ProjectSidebar extends StatefulWidget {
@@ -91,25 +90,21 @@ class _ProjectSidebarState extends State<ProjectSidebar> {
                   ),
           ),
           Positioned(
-            // Glass runs continuously from y=0 up behind the floating top bar
-            // so there's no seam between the two panels; padding pushes the
-            // field below the 48px bar.
-            top: 0,
+            top: 48,
             left: 0,
             right: 0,
-            child: GlassSurface(
-              blur: 18,
-              frost: .08,
-              scrim: .48,
-              border: false,
-              borderRadius: BorderRadius.zero,
-              padding: const EdgeInsets.fromLTRB(14, 58, 14, 10),
-              child: TextField(
-                onChanged: (value) => setState(() => _query = value),
-                decoration: const InputDecoration(
-                  hintText: 'Search projects',
-                  prefixIcon: Icon(Icons.search_rounded, size: 19),
-                  isDense: true,
+            child: SizedBox(
+              key: const Key('sidebar-header'),
+              height: 68,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+                child: TextField(
+                  onChanged: (value) => setState(() => _query = value),
+                  decoration: const InputDecoration(
+                    hintText: 'Search projects',
+                    prefixIcon: Icon(Icons.search_rounded, size: 19),
+                    isDense: true,
+                  ),
                 ),
               ),
             ),

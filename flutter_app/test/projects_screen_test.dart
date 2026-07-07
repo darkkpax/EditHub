@@ -38,6 +38,10 @@ void main() {
     expect(find.text('Summer campaign'), findsNWidgets(2));
     expect(find.text('Project files'), findsOneWidget);
     expect(find.byTooltip('New project'), findsOneWidget);
+
+    expect(find.byKey(const Key('projects-header-glass')), findsOneWidget);
+    expect(tester.getSize(find.byKey(const Key('sidebar-header'))).height, 68);
+    expect(tester.getSize(find.byKey(const Key('project-header'))).height, 68);
   });
 
   testWidgets('new-project button opens an anchored glass popup', (

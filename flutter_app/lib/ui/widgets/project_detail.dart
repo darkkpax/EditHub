@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 
 import '../../models/models.dart';
 import '../../theme.dart';
-import '../design/glass_surface.dart';
 import '../design/motion.dart';
 
 class ProjectDetail extends StatelessWidget {
@@ -46,98 +45,103 @@ class ProjectDetail extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        GlassSurface(
-          blur: 18,
-          frost: .08,
-          scrim: .48,
-          border: false,
-          borderRadius: BorderRadius.zero,
-          // Top padding clears the floating 48px top bar; glass runs up behind
-          // it so there's no seam.
-          padding: const EdgeInsets.fromLTRB(18, 58, 18, 14),
-          child: Row(
-            children: [
-              Container(
-                width: 64,
-                height: 64,
-                decoration: BoxDecoration(
-                  color: (archived ? AppColors.warn : AppColors.accent)
-                      .withValues(alpha: .14),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Icon(
-                  archived ? Icons.cloud_outlined : Icons.folder_rounded,
-                  color: archived ? AppColors.warn : AppColors.accent,
-                  size: 31,
-                ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+        SizedBox(
+          height: 116,
+          child: Align(
+            alignment: Alignment.bottomCenter,
+            child: SizedBox(
+              key: const Key('project-header'),
+              height: 68,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 18),
+                child: Row(
                   children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            project.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: (archived ? AppColors.warn : AppColors.accent)
+                            .withValues(alpha: .14),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Icon(
+                        archived ? Icons.cloud_outlined : Icons.folder_rounded,
+                        color: archived ? AppColors.warn : AppColors.accent,
+                        size: 23,
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  project.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 9),
+                              _StatusBadge(status: project.status),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '${_month(project.month)} ${project.year ?? ''}',
                             style: const TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.w700,
+                              color: AppColors.dim,
+                              fontSize: 11,
                             ),
                           ),
-                        ),
-                        const SizedBox(width: 9),
-                        _StatusBadge(status: project.status),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${_month(project.month)} ${project.year ?? ''}',
-                      style: const TextStyle(
-                        color: AppColors.dim,
-                        fontSize: 13,
+                        ],
                       ),
+                    ),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _PrimaryAction(
+                          key: const Key('project-open-action'),
+                          onTap: archived ? onRestore : onOpen,
+                          icon: archived
+                              ? Icons.cloud_download_rounded
+                              : Icons.play_arrow_rounded,
+                          label: archived ? 'Restore' : 'Open',
+                        ),
+                        _CircleAction(
+                          key: const Key('project-reveal-action'),
+                          tooltip: 'Show in file manager',
+                          onTap: onReveal,
+                          icon: Icons.folder_open_rounded,
+                        ),
+                        _CircleAction(
+                          key: const Key('project-archive-action'),
+                          tooltip: archived
+                              ? 'Already in iCloud'
+                              : 'Offload to iCloud',
+                          onTap: archived ? null : onArchive,
+                          icon: Icons.cloud_upload_rounded,
+                        ),
+                        _CircleAction(
+                          key: const Key('project-delete-action'),
+                          tooltip: 'Delete project',
+                          onTap: onDelete,
+                          icon: Icons.delete_outline_rounded,
+                          danger: true,
+                        ),
+                      ],
                     ),
                   ],
                 ),
               ),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  _PrimaryAction(
-                    key: const Key('project-open-action'),
-                    onTap: archived ? onRestore : onOpen,
-                    icon: archived
-                        ? Icons.cloud_download_rounded
-                        : Icons.play_arrow_rounded,
-                    label: archived ? 'Restore' : 'Open',
-                  ),
-                  _CircleAction(
-                    key: const Key('project-reveal-action'),
-                    tooltip: 'Show in file manager',
-                    onTap: onReveal,
-                    icon: Icons.folder_open_rounded,
-                  ),
-                  _CircleAction(
-                    key: const Key('project-archive-action'),
-                    tooltip: archived ? 'Already in iCloud' : 'Offload to iCloud',
-                    onTap: archived ? null : onArchive,
-                    icon: Icons.cloud_upload_rounded,
-                  ),
-                  _CircleAction(
-                    key: const Key('project-delete-action'),
-                    tooltip: 'Delete project',
-                    onTap: onDelete,
-                    icon: Icons.delete_outline_rounded,
-                    danger: true,
-                  ),
-                ],
-              ),
-            ],
+            ),
           ),
         ),
         if (project.status == ProjectStatus.downloading)
@@ -225,7 +229,8 @@ class ProjectDetail extends StatelessWidget {
                             final entries = snapshot.data ?? const [];
                             if (entries.isEmpty) {
                               return const _EmptyFolders(
-                                text: 'This project folder is empty or unavailable.',
+                                text:
+                                    'This project folder is empty or unavailable.',
                               );
                             }
                             return _FilesBrowser(
@@ -442,8 +447,11 @@ class _FilesBrowserState extends State<_FilesBrowser> {
               onTap: () => setState(_stack.removeLast),
               child: Row(
                 children: [
-                  const Icon(Icons.chevron_left_rounded,
-                      size: 20, color: AppColors.accent),
+                  const Icon(
+                    Icons.chevron_left_rounded,
+                    size: 20,
+                    color: AppColors.accent,
+                  ),
                   const SizedBox(width: 4),
                   Flexible(
                     child: Text(
@@ -472,8 +480,7 @@ class _FilesBrowserState extends State<_FilesBrowser> {
                   itemBuilder: (_, index) {
                     final entry = entries[index];
                     return FadeInUp(
-                      delay:
-                          Duration(milliseconds: (index * 22).clamp(0, 220)),
+                      delay: Duration(milliseconds: (index * 22).clamp(0, 220)),
                       child: _FolderTile(
                         entry: entry,
                         fileCount: entry.isFolder ? _fileCount(entry) : 0,

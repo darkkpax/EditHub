@@ -4,6 +4,11 @@ import 'package:edithub/services/downloader_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('recognizes Google Drive folders without rewriting them as files', () {
+    const url = 'https://drive.google.com/drive/folders/folder-id?usp=sharing';
+    expect(normalizeDownloadUrl(url), url);
+  });
+
   test('normalizes Google Drive and Dropbox share links', () {
     expect(
       normalizeDownloadUrl('https://drive.google.com/file/d/abc123/view'),

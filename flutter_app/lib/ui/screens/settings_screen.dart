@@ -55,6 +55,33 @@ class SettingsScreen extends ConsumerWidget {
           onChanged: (v) => notifier.update((s) => s.copyWith(davinciPath: v)),
         ),
         const SizedBox(height: 12),
+        _TextRow(
+          label: 'Adobe Premiere Pro path',
+          value: settings.premierePath,
+          onChanged: (v) => notifier.update((s) => s.copyWith(premierePath: v)),
+        ),
+        const SizedBox(height: 12),
+        FilledButton.icon(
+          onPressed: () async {
+            try {
+              await ref.read(googleDriveAuthProvider).signIn();
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Google Drive connected')),
+                );
+              }
+            } catch (error) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(SnackBar(content: Text(error.toString())));
+              }
+            }
+          },
+          icon: const Icon(Icons.add_to_drive),
+          label: const Text('Connect Google Drive'),
+        ),
+        const SizedBox(height: 12),
         _NumberRow(
           label: 'Auto-offload after (days)',
           value: settings.autoArchiveDays,

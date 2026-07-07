@@ -11,7 +11,9 @@ import '../models/models.dart';
 import '../services/archiver_service.dart';
 import '../services/davinci_service.dart';
 import '../services/downloader_service.dart';
+import '../services/editor_service.dart';
 import '../services/icloud_service.dart';
+import '../services/google_drive_auth_service.dart';
 import '../services/project_store.dart';
 import '../services/settings_service.dart';
 import '../services/shell_service.dart';
@@ -21,7 +23,10 @@ enum AppTab { projects, settings }
 final settingsServiceProvider = Provider((_) => SettingsService());
 final projectStoreProvider = Provider((_) => ProjectStore());
 final shellServiceProvider = Provider((_) => const ShellService());
-final downloaderServiceProvider = Provider((_) => DownloaderService());
+final downloaderServiceProvider = Provider(
+  (ref) =>
+      DownloaderService(googleDriveAuth: ref.read(googleDriveAuthProvider)),
+);
 final projectApiServiceProvider = Provider((_) => ProjectApiService());
 final projectRepositoryProvider = Provider(
   (ref) => ProjectRepository(
@@ -31,6 +36,8 @@ final projectRepositoryProvider = Provider(
   ),
 );
 final davinciServiceProvider = Provider((_) => DaVinciService());
+final editorServiceProvider = Provider((_) => EditorService());
+final googleDriveAuthProvider = Provider((_) => GoogleDriveAuthService());
 final archiverServiceProvider = Provider(
   (ref) => ArchiverService(ref.read(projectStoreProvider)),
 );

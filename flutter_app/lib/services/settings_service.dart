@@ -21,6 +21,8 @@ class SettingsService {
     dropfxLibrary: p.join(_home, 'EditHub', 'SFX'),
     davinciPath:
         r'C:\Program Files\Blackmagic Design\DaVinci Resolve\Resolve.exe',
+    premierePath:
+        r'C:\Program Files\Adobe\Adobe Premiere Pro 2026\Adobe Premiere Pro.exe',
     autoArchiveDays: 30,
     autoImportPatterns: const ['*-enhanced*', '*-enhanced-v2*'],
     icloudPath: p.join(_home, 'iCloudDrive'),

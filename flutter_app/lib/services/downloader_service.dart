@@ -5,6 +5,8 @@ import 'package:archive/archive_io.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 
+import 'google_drive_auth_service.dart';
+
 class DownloadProgress {
   const DownloadProgress({
     required this.projectId,
@@ -60,11 +62,13 @@ class DownloaderService {
     http.Client? client,
     this.maxAttempts = 5,
     this.retryBaseDelay = const Duration(seconds: 2),
+    this.googleDriveAuth,
   }) : _client = client ?? http.Client();
 
   final http.Client _client;
   final int maxAttempts;
   final Duration retryBaseDelay;
+  final GoogleDriveAuthService? googleDriveAuth;
   final Set<String> _cancelledProjects = {};
 
   void cancel(String projectId) => _cancelledProjects.add(projectId);
@@ -78,12 +82,37 @@ class DownloaderService {
     _cancelledProjects.remove(projectId);
     await Directory(destinationFolder).create(recursive: true);
     try {
+      final jobs = <({String rawUrl, String? driveId, String? relativePath})>[];
+      for (final url in urls) {
+        if (Uri.parse(url).host == 'drive.google.com' &&
+            googleDriveAuth != null) {
+          final files = await googleDriveAuth!.filesFor(url);
+          if (files.isNotEmpty) {
+            jobs.addAll(
+              files.map(
+                (file) =>
+                    (rawUrl: url, driveId: file.id, relativePath: file.path),
+              ),
+            );
+            continue;
+          }
+        }
+        jobs.add((rawUrl: url, driveId: null, relativePath: null));
+      }
       return await Future.wait(
-        urls.map(
-          (url) => _downloadOne(
+        jobs.map(
+          (job) => _downloadOne(
             projectId: projectId,
-            rawUrl: url,
-            destinationFolder: destinationFolder,
+            rawUrl: job.rawUrl,
+            normalizedUrl: job.driveId == null
+                ? null
+                : 'https://www.googleapis.com/drive/v3/files/${job.driveId}?alt=media',
+            destinationFolder: job.relativePath == null
+                ? destinationFolder
+                : p.join(destinationFolder, p.dirname(job.relativePath!)),
+            preferredName: job.relativePath == null
+                ? null
+                : p.basename(job.relativePath!),
             onProgress: onProgress,
           ),
         ),
@@ -97,18 +126,28 @@ class DownloaderService {
     required String projectId,
     required String rawUrl,
     required String destinationFolder,
+    String? normalizedUrl,
+    String? preferredName,
     void Function(DownloadProgress progress)? onProgress,
   }) async {
-    final normalized = normalizeDownloadUrl(rawUrl);
+    final normalized = normalizedUrl ?? normalizeDownloadUrl(rawUrl);
+    await Directory(destinationFolder).create(recursive: true);
     Object? lastError;
 
     for (var attempt = 1; attempt <= maxAttempts; attempt++) {
       _throwIfCancelled(projectId);
       try {
-        final fallbackName = _filenameFromUri(Uri.parse(normalized));
+        final fallbackName =
+            preferredName ?? _filenameFromUri(Uri.parse(normalized));
         final partial = File(p.join(destinationFolder, '$fallbackName.part'));
         final existing = await partial.exists() ? await partial.length() : 0;
         final request = http.Request('GET', Uri.parse(normalized));
+        if (Uri.parse(rawUrl).host == 'drive.google.com') {
+          final token = await googleDriveAuth?.accessToken();
+          if (token != null) {
+            request.headers[HttpHeaders.authorizationHeader] = 'Bearer $token';
+          }
+        }
         if (existing > 0) {
           request.headers[HttpHeaders.rangeHeader] = 'bytes=$existing-';
         }

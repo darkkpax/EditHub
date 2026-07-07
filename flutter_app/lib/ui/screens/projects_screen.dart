@@ -10,6 +10,7 @@ import '../widgets/new_project_dialog.dart';
 import '../widgets/project_detail.dart';
 import '../widgets/project_sidebar.dart';
 import '../design/motion.dart';
+import '../design/glass_surface.dart';
 
 class ProjectsScreen extends ConsumerStatefulWidget {
   const ProjectsScreen({super.key});
@@ -66,6 +67,30 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen>
             projects.firstOrNull;
         return Stack(
           children: [
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              height: 124,
+              child: ShaderMask(
+                blendMode: BlendMode.dstIn,
+                shaderCallback: (bounds) => const LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  stops: [0, .88, 1],
+                  colors: [Colors.white, Colors.white, Colors.transparent],
+                ).createShader(bounds),
+                child: const GlassSurface(
+                  key: Key('projects-header-glass'),
+                  blur: 22,
+                  frost: .08,
+                  scrim: .48,
+                  border: false,
+                  borderRadius: BorderRadius.zero,
+                  child: SizedBox.expand(),
+                ),
+              ),
+            ),
             Row(
               children: [
                 ProjectSidebar(
@@ -169,7 +194,9 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen>
     if (folder == null) return Future.value(0);
     return _sizeCache.putIfAbsent(
       folder,
-      () => Future(() => ref.read(projectStoreProvider).getFolderSizeBytes(folder)),
+      () => Future(
+        () => ref.read(projectStoreProvider).getFolderSizeBytes(folder),
+      ),
     );
   }
 
@@ -252,6 +279,16 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen>
   Future<void> _open(ProjectInfo project) async {
     final folder = project.folderPath;
     if (folder == null) return;
+    if (project.editor == 'premiere') {
+      try {
+        await ref
+            .read(editorServiceProvider)
+            .launchPremiere(ref.read(settingsProvider).premierePath, folder);
+      } catch (error) {
+        if (mounted) _message(error.toString(), error: true);
+      }
+      return;
+    }
     final result = await ref
         .read(davinciServiceProvider)
         .launch(ref.read(settingsProvider).davinciPath, folder);
@@ -320,7 +357,9 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen>
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Delete project?'),
-        content: Text('The folder "${project.name}" will be deleted from disk.'),
+        content: Text(
+          'The folder "${project.name}" will be deleted from disk.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),

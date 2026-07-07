@@ -15,47 +15,50 @@ class AppTabBar extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final active = ref.watch(activeTabProvider);
+    final bar = SizedBox(
+      height: 48,
+      child: Row(
+        children: [
+          const SizedBox(width: 8),
+          _TabButton(
+            icon: Icons.folder_rounded,
+            selected: active == AppTab.projects,
+            tooltip: 'Projects',
+            onTap: () =>
+                ref.read(activeTabProvider.notifier).state = AppTab.projects,
+          ),
+          _TabButton(
+            icon: Icons.settings_rounded,
+            selected: active == AppTab.settings,
+            tooltip: 'Settings',
+            onTap: () =>
+                ref.read(activeTabProvider.notifier).state = AppTab.settings,
+          ),
+          const Expanded(
+            child: DragToMoveArea(child: SizedBox(height: double.infinity)),
+          ),
+          const _ICloudStatus(),
+          const SizedBox(width: 6),
+          const _WindowButton(icon: Icons.remove, kind: _WindowAction.minimize),
+          const _WindowButton(
+            icon: Icons.crop_square_rounded,
+            kind: _WindowAction.maximize,
+          ),
+          const _WindowButton(
+            icon: Icons.close_rounded,
+            kind: _WindowAction.close,
+          ),
+        ],
+      ),
+    );
+    if (active == AppTab.projects) return bar;
     return GlassSurface(
-      // Floats over the panels' own glass, so keep it light to avoid a
-      // double-scrim dark strip and any seam.
       blur: 12,
       scrim: .16,
       frost: .05,
       border: false,
       borderRadius: BorderRadius.zero,
-      child: SizedBox(
-        height: 48,
-        child: Row(
-          children: [
-            const SizedBox(width: 8),
-            _TabButton(
-              icon: Icons.folder_rounded,
-              selected: active == AppTab.projects,
-              tooltip: 'Projects',
-              onTap: () =>
-                  ref.read(activeTabProvider.notifier).state = AppTab.projects,
-            ),
-            _TabButton(
-              icon: Icons.settings_rounded,
-              selected: active == AppTab.settings,
-              tooltip: 'Settings',
-              onTap: () =>
-                  ref.read(activeTabProvider.notifier).state = AppTab.settings,
-            ),
-            const Expanded(
-              child: DragToMoveArea(child: SizedBox(height: double.infinity)),
-            ),
-            const _ICloudStatus(),
-            const SizedBox(width: 6),
-            const _WindowButton(icon: Icons.remove, kind: _WindowAction.minimize),
-            const _WindowButton(
-              icon: Icons.crop_square_rounded,
-              kind: _WindowAction.maximize,
-            ),
-            const _WindowButton(icon: Icons.close_rounded, kind: _WindowAction.close),
-          ],
-        ),
-      ),
+      child: bar,
     );
   }
 }

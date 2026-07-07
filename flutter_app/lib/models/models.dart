@@ -153,6 +153,7 @@ class AppSettings {
   final String downloadsFolder;
   final String dropfxLibrary;
   final String davinciPath;
+  final String premierePath;
   final int autoArchiveDays;
   final List<String> autoImportPatterns;
   final String icloudPath;
@@ -162,6 +163,7 @@ class AppSettings {
     required this.downloadsFolder,
     required this.dropfxLibrary,
     required this.davinciPath,
+    required this.premierePath,
     required this.autoArchiveDays,
     required this.autoImportPatterns,
     required this.icloudPath,
@@ -175,6 +177,7 @@ class AppSettings {
           (j['downloadsFolder'] ?? defaults.downloadsFolder) as String,
       dropfxLibrary: (j['dropfxLibrary'] ?? defaults.dropfxLibrary) as String,
       davinciPath: (j['davinciPath'] ?? defaults.davinciPath) as String,
+      premierePath: (j['premierePath'] ?? defaults.premierePath) as String,
       autoArchiveDays:
           (j['autoArchiveDays'] as num?)?.toInt() ?? defaults.autoArchiveDays,
       autoImportPatterns:
@@ -191,6 +194,7 @@ class AppSettings {
     'downloadsFolder': downloadsFolder,
     'dropfxLibrary': dropfxLibrary,
     'davinciPath': davinciPath,
+    'premierePath': premierePath,
     'autoArchiveDays': autoArchiveDays,
     'autoImportPatterns': autoImportPatterns,
     'icloudPath': icloudPath,
@@ -201,6 +205,7 @@ class AppSettings {
     String? downloadsFolder,
     String? dropfxLibrary,
     String? davinciPath,
+    String? premierePath,
     int? autoArchiveDays,
     List<String>? autoImportPatterns,
     String? icloudPath,
@@ -210,6 +215,7 @@ class AppSettings {
       downloadsFolder: downloadsFolder ?? this.downloadsFolder,
       dropfxLibrary: dropfxLibrary ?? this.dropfxLibrary,
       davinciPath: davinciPath ?? this.davinciPath,
+      premierePath: premierePath ?? this.premierePath,
       autoArchiveDays: autoArchiveDays ?? this.autoArchiveDays,
       autoImportPatterns: autoImportPatterns ?? this.autoImportPatterns,
       icloudPath: icloudPath ?? this.icloudPath,
