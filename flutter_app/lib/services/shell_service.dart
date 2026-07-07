@@ -28,10 +28,11 @@ class ShellService {
     // Open the folder in whatever is registered as the default file manager
     // (File Pilot, Explorer, etc.) via the shell's `start` verb.
     // ponytail: `start` respects the user's default; hardcoding a path wouldn't.
-    await Process.start(
-      'cmd',
-      ['/c', 'start', '', path],
-      mode: ProcessStartMode.detached,
-    );
+    await Process.start('cmd', [
+      '/c',
+      'start',
+      '',
+      path,
+    ], mode: ProcessStartMode.detached);
   }
 }

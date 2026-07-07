@@ -34,10 +34,9 @@ ThemeData buildTheme() {
       error: AppColors.bad,
     ),
     // Sora: a clean geometric designer font, cached to disk after first load.
-    textTheme: GoogleFonts.soraTextTheme(base.textTheme).apply(
-      bodyColor: AppColors.txt,
-      displayColor: AppColors.txt,
-    ),
+    textTheme: GoogleFonts.soraTextTheme(
+      base.textTheme,
+    ).apply(bodyColor: AppColors.txt, displayColor: AppColors.txt),
     cardColor: AppColors.card,
     dividerColor: AppColors.sep,
     iconTheme: const IconThemeData(color: AppColors.txt),

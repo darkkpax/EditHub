@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 
 import '../../models/models.dart';
@@ -96,17 +98,25 @@ class _ProjectSidebarState extends State<ProjectSidebar> {
             top: 48,
             left: 0,
             right: 0,
-            child: SizedBox(
-              key: const Key('sidebar-header'),
-              height: 68,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
-                child: TextField(
-                  onChanged: (value) => setState(() => _query = value),
-                  decoration: const InputDecoration(
-                    hintText: 'Search projects',
-                    prefixIcon: Icon(Icons.search_rounded, size: 19),
-                    isDense: true,
+            child: ClipRect(
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+                child: ColoredBox(
+                  color: const Color(0xC72C2C2E),
+                  child: SizedBox(
+                    key: const Key('sidebar-header'),
+                    height: 68,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+                      child: TextField(
+                        onChanged: (value) => setState(() => _query = value),
+                        decoration: const InputDecoration(
+                          hintText: 'Search projects',
+                          prefixIcon: Icon(Icons.search_rounded, size: 19),
+                          isDense: true,
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ),

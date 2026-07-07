@@ -54,7 +54,11 @@ class _NewProjectPopoverState extends State<NewProjectPopover> {
       _error = null;
     });
     try {
-      await widget.onCreate(_name.text.trim(), url.isEmpty ? const [] : [url], _editor);
+      await widget.onCreate(
+        _name.text.trim(),
+        url.isEmpty ? const [] : [url],
+        _editor,
+      );
       widget.onClose();
     } catch (error) {
       if (mounted) setState(() => _error = error.toString());
@@ -86,8 +90,9 @@ class _NewProjectPopoverState extends State<NewProjectPopover> {
                   _EditorToggle(
                     editor: _editor,
                     onToggle: () => setState(
-                      () => _editor =
-                          _editor == 'davinci' ? 'premiere' : 'davinci',
+                      () => _editor = _editor == 'davinci'
+                          ? 'premiere'
+                          : 'davinci',
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -189,7 +194,10 @@ class _CreateButton extends StatelessWidget {
           ? const SizedBox(
               width: 16,
               height: 16,
-              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.white,
+              ),
             )
           : const Text(
               'Create',
