@@ -56,7 +56,8 @@ class GoogleDriveAuthService {
       'code_challenge_method': 'S256',
       'state': state,
     });
-    await Process.start('explorer.exe', [
+    await Process.start('rundll32.exe', [
+      'url.dll,FileProtocolHandler',
       auth.toString(),
     ], mode: ProcessStartMode.detached);
     final request = await server.first.timeout(const Duration(minutes: 3));
