@@ -30,6 +30,12 @@ String archiveMonthFolder(String? month) {
   return _archiveMonths[value] ?? value;
 }
 
+bool _isArchiveMonth(String value) {
+  final upper = value.toUpperCase();
+  return _archiveMonths.containsKey(upper) ||
+      _archiveMonths.containsValue(upper);
+}
+
 /// Subfolders created for every new project (matches the Electron app).
 const List<String> kDefaultProjectFolders = [
   'FOOTAGE',
@@ -54,21 +60,6 @@ const Set<String> kVideoExtensions = {
   '.webm',
   '.braw',
 };
-
-const List<String> _knownProjectFolders = [
-  'SFX',
-  'Music',
-  'Footage',
-  'Graphics',
-  'Docs',
-  'FOOTAGE',
-  'READY VIDEOS',
-  'READY VIDEO',
-  'VOICE',
-  'B-ROLL',
-  'SUBS',
-  'MISC',
-];
 
 class ProjectStore {
   static const _uuid = Uuid();
@@ -206,19 +197,14 @@ class ProjectStore {
         }
         final isYear = RegExp(r'^\d{4}$').hasMatch(name);
         final nextYear = isYear ? name : year;
-        final nextMonth = year != null && depth <= 2 ? name : month;
+        final nextMonth = year != null && _isArchiveMonth(name)
+            ? archiveMonthFolder(name)
+            : month;
 
         final hasWin = File(p.join(entry.path, kProjectManifest)).existsSync();
         final hasMac = File(p.join(entry.path, '$name.edithub')).existsSync();
         final hasMeta = File(p.join(entry.path, kProjectMetadata)).existsSync();
-        final hasKnown = _knownProjectFolders.any(
-          (f) => Directory(p.join(entry.path, f)).existsSync(),
-        );
-
-        if (hasWin ||
-            hasMac ||
-            hasMeta ||
-            (year != null && month != null && hasKnown)) {
+        if (hasWin || hasMac || hasMeta || (year != null && month != null)) {
           scanProjectDir(entry.path, year, month);
           continue;
         }

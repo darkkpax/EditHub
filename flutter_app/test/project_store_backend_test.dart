@@ -36,6 +36,20 @@ void main() {
     expect(store.getFolderSizeBytes(folder.path), greaterThanOrEqualTo(1536));
   });
 
+  test('project without a manifest keeps its month category', () {
+    final root = Directory.systemTemp.createTempSync('edithub_period_');
+    addTearDown(() => root.deleteSync(recursive: true));
+    Directory(
+      p.join(root.path, '2026', 'JULY', 'Plain project', 'Media', 'FOOTAGE'),
+    ).createSync(recursive: true);
+
+    final project = ProjectStore().listProjects(root.path).single;
+
+    expect(project.name, 'Plain project');
+    expect(project.year, '2026');
+    expect(project.month, 'JULY');
+  });
+
   test('Explorer arguments open folders and select files', () {
     expect(explorerArguments(r'D:\Videos\Project'), [r'D:\Videos\Project']);
     expect(explorerArguments(r'D:\Videos\Project\clip.mov', selectFile: true), [
