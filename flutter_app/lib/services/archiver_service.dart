@@ -38,7 +38,7 @@ class ArchiverService {
     final folderName = p.basename(projectFolder);
 
     final destRoot = (info?.year != null && info?.month != null)
-        ? p.join(archiveFolder, info!.year!, info.month!)
+        ? p.join(archiveFolder, info!.year!, archiveMonthFolder(info.month))
         : archiveFolder;
     Directory(destRoot).createSync(recursive: true);
 
@@ -129,7 +129,11 @@ class ArchiverService {
 
       if (!isCurrentMonth || age >= thresholdMs) {
         try {
-          await archiveProject(folder, archiveFolder, sourceRoot: projectsFolder);
+          await archiveProject(
+            folder,
+            archiveFolder,
+            sourceRoot: projectsFolder,
+          );
         } catch (e) {
           // ignore: avoid_print
           print('Auto-archive failed for $folder: $e');

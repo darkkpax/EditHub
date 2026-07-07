@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 
 import '../../models/models.dart';
@@ -47,30 +45,31 @@ class ProjectDetail extends StatelessWidget {
       children: [
         SizedBox(
           height: 116,
-          child: Align(
-            alignment: Alignment.bottomCenter,
-            child: SizedBox(
-              key: const Key('project-header'),
-              height: 68,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 18),
+          key: const Key('project-header'),
+          child: Stack(
+            children: [
+              Positioned(
+                top: 0,
+                left: 18,
+                right: 184,
+                height: 48,
                 child: Row(
                   children: [
                     Container(
-                      width: 44,
-                      height: 44,
+                      width: 40,
+                      height: 40,
                       decoration: BoxDecoration(
                         color: (archived ? AppColors.warn : AppColors.accent)
                             .withValues(alpha: .14),
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: BorderRadius.circular(12),
                       ),
                       child: Icon(
                         archived ? Icons.cloud_outlined : Icons.folder_rounded,
                         color: archived ? AppColors.warn : AppColors.accent,
-                        size: 23,
+                        size: 24,
                       ),
                     ),
-                    const SizedBox(width: 14),
+                    const SizedBox(width: 12),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -92,7 +91,7 @@ class ProjectDetail extends StatelessWidget {
                               _StatusBadge(status: project.status),
                             ],
                           ),
-                          const SizedBox(height: 4),
+                          const SizedBox(height: 2),
                           Row(
                             children: [
                               Text(
@@ -118,45 +117,49 @@ class ProjectDetail extends StatelessWidget {
                         ],
                       ),
                     ),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        _PrimaryAction(
-                          key: const Key('project-open-action'),
-                          onTap: archived ? onRestore : onOpen,
-                          icon: archived
-                              ? Icons.cloud_download_rounded
-                              : Icons.play_arrow_rounded,
-                          label: archived ? 'Restore' : 'Open',
-                        ),
-                        _CircleAction(
-                          key: const Key('project-reveal-action'),
-                          tooltip: 'Show in file manager',
-                          onTap: onReveal,
-                          icon: Icons.folder_open_rounded,
-                        ),
-                        _CircleAction(
-                          key: const Key('project-archive-action'),
-                          tooltip: archived
-                              ? 'Already in iCloud'
-                              : 'Offload to iCloud',
-                          onTap: archived ? null : onArchive,
-                          icon: Icons.cloud_upload_rounded,
-                        ),
-                        _CircleAction(
-                          key: const Key('project-delete-action'),
-                          tooltip: 'Delete project',
-                          onTap: onDelete,
-                          icon: Icons.delete_outline_rounded,
-                          danger: true,
-                        ),
-                      ],
+                  ],
+                ),
+              ),
+              Positioned(
+                top: 48,
+                right: 18,
+                height: 68,
+                child: Row(
+                  spacing: 8,
+                  children: [
+                    _PrimaryAction(
+                      key: const Key('project-open-action'),
+                      onTap: archived ? onRestore : onOpen,
+                      icon: archived
+                          ? Icons.cloud_download_rounded
+                          : Icons.play_arrow_rounded,
+                      label: archived ? 'Restore' : 'Open',
+                    ),
+                    _CircleAction(
+                      key: const Key('project-reveal-action'),
+                      tooltip: 'Show in file manager',
+                      onTap: onReveal,
+                      icon: Icons.folder_open_rounded,
+                    ),
+                    _CircleAction(
+                      key: const Key('project-archive-action'),
+                      tooltip: archived
+                          ? 'Already in iCloud'
+                          : 'Offload to iCloud',
+                      onTap: archived ? null : onArchive,
+                      icon: Icons.cloud_upload_rounded,
+                    ),
+                    _CircleAction(
+                      key: const Key('project-delete-action'),
+                      tooltip: 'Delete project',
+                      onTap: onDelete,
+                      icon: Icons.delete_outline_rounded,
+                      danger: true,
                     ),
                   ],
                 ),
               ),
-            ),
+            ],
           ),
         ),
         if (project.status == ProjectStatus.downloading)
@@ -194,50 +197,29 @@ class ProjectDetail extends StatelessWidget {
           ),
         Expanded(
           child: Padding(
-            padding: const EdgeInsets.all(18),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Project files',
-                  style: TextStyle(
-                    color: AppColors.dim,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: .7,
+            padding: const EdgeInsets.fromLTRB(18, 10, 18, 18),
+            child: archived
+                ? const _EmptyFolders(
+                    text: 'Restore the project to see local files.',
+                  )
+                : FutureBuilder<List<FolderEntry>>(
+                    future: folders,
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState != ConnectionState.done) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+                      final entries = snapshot.data ?? const [];
+                      if (entries.isEmpty) {
+                        return const _EmptyFolders(
+                          text: 'This project folder is empty or unavailable.',
+                        );
+                      }
+                      return _FilesBrowser(
+                        root: entries,
+                        onOpenFile: onEntryOpen,
+                      );
+                    },
                   ),
-                ),
-                const SizedBox(height: 10),
-                Expanded(
-                  child: archived
-                      ? const _EmptyFolders(
-                          text: 'Restore the project to see local files.',
-                        )
-                      : FutureBuilder<List<FolderEntry>>(
-                          future: folders,
-                          builder: (context, snapshot) {
-                            if (snapshot.connectionState !=
-                                ConnectionState.done) {
-                              return const Center(
-                                child: CircularProgressIndicator(),
-                              );
-                            }
-                            final entries = snapshot.data ?? const [];
-                            if (entries.isEmpty) {
-                              return const _EmptyFolders(
-                                text:
-                                    'This project folder is empty or unavailable.',
-                              );
-                            }
-                            return _FilesBrowser(
-                              root: entries,
-                              onOpenFile: onEntryOpen,
-                            );
-                          },
-                        ),
-                ),
-              ],
-            ),
           ),
         ),
       ],
@@ -395,8 +377,7 @@ int _fileCount(FolderEntry e) {
   return n;
 }
 
-/// In-app folder browser: tapping a folder drills into it (never opens
-/// Explorer); an empty folder just shakes; a file opens in its default app.
+/// Inline project tree: folders expand in place and files open normally.
 class _FilesBrowser extends StatefulWidget {
   const _FilesBrowser({required this.root, required this.onOpenFile});
   final List<FolderEntry> root;
@@ -407,186 +388,160 @@ class _FilesBrowser extends StatefulWidget {
 }
 
 class _FilesBrowserState extends State<_FilesBrowser> {
-  // Breadcrumb of entered folders; empty = project root.
-  final List<FolderEntry> _stack = [];
+  @override
+  Widget build(BuildContext context) => ScrollConfiguration(
+    behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+    child: ListView.builder(
+      padding: const EdgeInsets.only(bottom: 74),
+      itemCount: widget.root.length,
+      itemBuilder: (_, index) => FadeInUp(
+        delay: Duration(milliseconds: (index * 22).clamp(0, 220)),
+        child: _EntryNode(
+          entry: widget.root[index],
+          onOpenFile: widget.onOpenFile,
+        ),
+      ),
+    ),
+  );
+}
 
-  List<FolderEntry> get _entries =>
-      _stack.isEmpty ? widget.root : _stack.last.children;
+class _EntryNode extends StatefulWidget {
+  const _EntryNode({required this.entry, required this.onOpenFile});
+  final FolderEntry entry;
+  final ValueChanged<FolderEntry> onOpenFile;
+
+  @override
+  State<_EntryNode> createState() => _EntryNodeState();
+}
+
+class _EntryNodeState extends State<_EntryNode> {
+  bool _expanded = false;
 
   @override
   Widget build(BuildContext context) {
-    final entries = _entries;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        if (_stack.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: PressableScale(
-              onTap: () => setState(_stack.removeLast),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.chevron_left_rounded,
-                    size: 20,
-                    color: AppColors.accent,
-                  ),
-                  const SizedBox(width: 4),
-                  Flexible(
-                    child: Text(
-                      _stack.last.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                      ),
+    final entry = widget.entry;
+    final expandable = entry.isFolder && entry.children.isNotEmpty;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Column(
+        children: [
+          _FolderTile(
+            entry: entry,
+            fileCount: entry.isFolder ? _fileCount(entry) : 0,
+            expanded: _expanded,
+            onTap: entry.isFolder
+                ? (expandable
+                      ? () => setState(() => _expanded = !_expanded)
+                      : null)
+                : () => widget.onOpenFile(entry),
+          ),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOutCubic,
+            child: !_expanded
+                ? const SizedBox.shrink()
+                : Padding(
+                    padding: const EdgeInsets.fromLTRB(18, 4, 0, 2),
+                    child: Column(
+                      children: [
+                        for (final child in entry.children)
+                          _EntryNode(
+                            entry: child,
+                            onOpenFile: widget.onOpenFile,
+                          ),
+                      ],
                     ),
                   ),
-                ],
-              ),
-            ),
           ),
-        Expanded(
-          child: entries.isEmpty
-              ? const _EmptyFolders(text: 'This folder is empty.')
-              : ListView.separated(
-                  // Bottom padding clears the floating "+" button so it never
-                  // overlaps the last folder rows.
-                  padding: const EdgeInsets.only(bottom: 74),
-                  itemCount: entries.length,
-                  separatorBuilder: (_, _) => const SizedBox(height: 5),
-                  itemBuilder: (_, index) {
-                    final entry = entries[index];
-                    return FadeInUp(
-                      delay: Duration(milliseconds: (index * 22).clamp(0, 220)),
-                      child: _FolderTile(
-                        entry: entry,
-                        fileCount: entry.isFolder ? _fileCount(entry) : 0,
-                        onEnter: () => setState(() => _stack.add(entry)),
-                        onOpenFile: () => widget.onOpenFile(entry),
-                      ),
-                    );
-                  },
-                ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
 
-class _FolderTile extends StatefulWidget {
+class _FolderTile extends StatelessWidget {
   const _FolderTile({
     required this.entry,
     required this.fileCount,
-    required this.onEnter,
-    required this.onOpenFile,
+    required this.expanded,
+    required this.onTap,
   });
   final FolderEntry entry;
   final int fileCount;
-  final VoidCallback onEnter;
-  final VoidCallback onOpenFile;
-
-  @override
-  State<_FolderTile> createState() => _FolderTileState();
-}
-
-class _FolderTileState extends State<_FolderTile>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _shake = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 320),
-  );
-
-  @override
-  void dispose() {
-    _shake.dispose();
-    super.dispose();
-  }
-
-  void _onTap() {
-    if (!widget.entry.isFolder) {
-      widget.onOpenFile();
-      return;
-    }
-    _shake.forward(from: 0); // always give tactile feedback
-    if (widget.fileCount > 0) widget.onEnter(); // only drill in if non-empty
-  }
+  final bool expanded;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    final isFolder = widget.entry.isFolder;
-    return AnimatedBuilder(
-      animation: _shake,
-      builder: (context, child) {
-        // Damped horizontal wobble.
-        final dx = _shake.isAnimating
-            ? 8 * (1 - _shake.value) * math.sin(_shake.value * math.pi * 4)
-            : 0.0;
-        return Transform.translate(offset: Offset(dx, 0), child: child);
-      },
-      child: PressableScale(
-        onTap: _onTap,
-        pressedScale: .985,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-          decoration: BoxDecoration(
-            color: isFolder ? const Color(0x12FFFFFF) : Colors.transparent,
-            border: Border.all(
-              color: isFolder ? AppColors.sep : const Color(0x0AFFFFFF),
-            ),
-            borderRadius: BorderRadius.circular(12),
+    final isFolder = entry.isFolder;
+    return PressableScale(
+      onTap: onTap,
+      enabled: onTap != null,
+      pressedScale: .985,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+        decoration: BoxDecoration(
+          color: isFolder ? const Color(0x12FFFFFF) : Colors.transparent,
+          border: Border.all(
+            color: isFolder ? AppColors.sep : const Color(0x0AFFFFFF),
           ),
-          child: Row(
-            children: [
-              Container(
-                width: 30,
-                height: 30,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: isFolder
-                      ? AppColors.accent.withValues(alpha: .16)
-                      : Colors.transparent,
-                  borderRadius: BorderRadius.circular(9),
-                ),
-                child: Icon(
-                  isFolder
-                      ? Icons.folder_rounded
-                      : Icons.insert_drive_file_outlined,
-                  color: isFolder ? AppColors.accent : AppColors.dim,
-                  size: 17,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 26,
+              height: 26,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: isFolder
+                    ? AppColors.accent.withValues(alpha: .16)
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(9),
+              ),
+              child: Icon(
+                isFolder
+                    ? (expanded
+                          ? Icons.folder_open_rounded
+                          : Icons.folder_rounded)
+                    : Icons.insert_drive_file_outlined,
+                color: isFolder ? AppColors.accent : AppColors.dim,
+                size: 15,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                entry.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: isFolder ? FontWeight.w600 : FontWeight.w400,
+                  color: isFolder ? AppColors.txt : AppColors.dim,
                 ),
               ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  widget.entry.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: isFolder ? FontWeight.w600 : FontWeight.w400,
-                    color: isFolder ? AppColors.txt : AppColors.dim,
-                  ),
-                ),
+            ),
+            // File count only when the folder actually has files.
+            if (isFolder && fileCount > 0) ...[
+              Text(
+                '$fileCount',
+                style: const TextStyle(color: AppColors.dim, fontSize: 11),
               ),
-              // File count only when the folder actually has files.
-              if (isFolder && widget.fileCount > 0) ...[
-                Text(
-                  '${widget.fileCount}',
-                  style: const TextStyle(color: AppColors.dim, fontSize: 12),
-                ),
-                const SizedBox(width: 6),
-              ],
-              Icon(
+              const SizedBox(width: 6),
+            ],
+            AnimatedRotation(
+              turns: expanded ? .25 : 0,
+              duration: const Duration(milliseconds: 160),
+              child: Icon(
                 isFolder
                     ? Icons.chevron_right_rounded
                     : Icons.open_in_new_rounded,
                 color: AppColors.dim,
                 size: isFolder ? 18 : 14,
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

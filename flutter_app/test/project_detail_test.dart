@@ -32,12 +32,17 @@ void main() {
       isFolder: true,
       children: [clip],
     );
+    final docs = FolderEntry(
+      name: 'DOCS',
+      path: r'D:\Videos\Project\DOCS',
+      isFolder: true,
+    );
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
           body: ProjectDetail(
             project: project,
-            folders: Future.value([folder]),
+            folders: Future.value([folder, docs]),
             size: Future.value(1536),
             onEntryOpen: (entry) => opened = entry,
             onOpen: () {},
@@ -63,6 +68,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(opened, isNull);
     expect(find.text('clip.mp4'), findsOneWidget);
+    expect(find.text('DOCS'), findsOneWidget);
 
     // Tapping the file opens it through the callback.
     await tester.tap(find.text('clip.mp4'));

@@ -37,12 +37,18 @@ class _ProjectSidebarState extends State<ProjectSidebar> {
     }
     var rowIndex = 0;
 
-    return Container(
+    return SizedBox(
       key: const Key('projects-sidebar'),
       width: 320,
-      color: const Color(0x06FFFFFF),
       child: Stack(
         children: [
+          const Positioned(
+            top: 116,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: ColoredBox(color: Color(0x06FFFFFF)),
+          ),
           Positioned.fill(
             child: groups.isEmpty
                 ? const Padding(
@@ -112,7 +118,7 @@ class _ProjectSidebarState extends State<ProjectSidebar> {
             right: 0,
             bottom: 0,
             width: 1,
-            child: ColoredBox(color: AppColors.sep),
+            child: ColoredBox(color: Colors.transparent),
           ),
         ],
       ),

@@ -6,6 +6,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('tray menu stays compact', () {
+    expect(kTrayMenuSize, const Size(176, 72));
+  });
+
   testWidgets('opens the project shell without requiring a login', (
     tester,
   ) async {

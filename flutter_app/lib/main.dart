@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'services/project_store.dart';
+import 'services/icloud_service.dart';
 import 'services/settings_service.dart';
 import 'services/updater_service.dart';
 import 'theme.dart';
@@ -21,8 +22,10 @@ const _kSingleInstancePort = 47615;
 /// the primary to surface, then get false and should exit immediately.
 Future<bool> _claimSingleInstance() async {
   try {
-    final server =
-        await ServerSocket.bind(InternetAddress.loopbackIPv4, _kSingleInstancePort);
+    final server = await ServerSocket.bind(
+      InternetAddress.loopbackIPv4,
+      _kSingleInstancePort,
+    );
     server.listen((socket) async {
       socket.destroy();
       await windowManager.show();
@@ -31,8 +34,10 @@ Future<bool> _claimSingleInstance() async {
     return true;
   } on SocketException {
     try {
-      (await Socket.connect(InternetAddress.loopbackIPv4, _kSingleInstancePort))
-          .destroy();
+      (await Socket.connect(
+        InternetAddress.loopbackIPv4,
+        _kSingleInstancePort,
+      )).destroy();
     } catch (_) {}
     return false;
   }
@@ -54,7 +59,7 @@ Future<void> main() async {
     final settings = SettingsService().load();
     ProjectStore().sweepExtractingDirs([
       settings.projectsFolder,
-      '${settings.icloudPath}\\Videos',
+      ICloudService.prepareArchiveAt(settings.icloudPath),
     ]);
   } catch (_) {}
 

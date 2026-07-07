@@ -36,12 +36,12 @@ void main() {
 
     expect(find.byKey(const Key('projects-sidebar')), findsOneWidget);
     expect(find.text('Summer campaign'), findsNWidgets(2));
-    expect(find.text('Project files'), findsOneWidget);
+    expect(find.text('Project files'), findsNothing);
     expect(find.byTooltip('New project'), findsOneWidget);
 
     expect(find.byKey(const Key('projects-header-glass')), findsOneWidget);
     expect(tester.getSize(find.byKey(const Key('sidebar-header'))).height, 68);
-    expect(tester.getSize(find.byKey(const Key('project-header'))).height, 68);
+    expect(tester.getSize(find.byKey(const Key('project-header'))).height, 116);
     expect(find.byType(ShaderMask), findsNothing);
     expect(find.textContaining('Links'), findsNothing);
     expect(find.textContaining('Size'), findsOneWidget);

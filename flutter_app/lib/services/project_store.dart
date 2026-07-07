@@ -10,6 +10,27 @@ import '../models/models.dart';
 const String kProjectManifest = '.edithub.json';
 const String kProjectMetadata = '.edithub-metadata.json';
 
+const _archiveMonths = {
+  'JANUARY': '01',
+  'FEBRUARY': '02',
+  'MARCH': '03',
+  'APRIL': '04',
+  'MAY': '05',
+  'JUNE': '06',
+  'JULY': '07',
+  'AUGUST': '08',
+  'SEPTEMBER': '09',
+  'OCTOBER': '10',
+  'NOVEMBER': '11',
+  'DECEMBER': '12',
+};
+
+String archiveMonthFolder(String? month) {
+  final value = month?.toUpperCase() ?? '';
+  if (RegExp(r'^(0[1-9]|1[0-2])$').hasMatch(value)) return value;
+  return _archiveMonths[value] ?? value;
+}
+
 /// Subfolders created for every new project (matches the Electron app).
 const List<String> kDefaultProjectFolders = [
   'FOOTAGE',

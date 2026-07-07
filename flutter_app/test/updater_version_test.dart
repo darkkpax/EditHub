@@ -21,4 +21,8 @@ void main() {
     expect(r?.url, 'https://x/EditHub-Setup-1.0.3.exe');
     expect(parseAppcast('<rss></rss>'), isNull);
   });
+
+  test('silent updater asks the installer to restart the app', () {
+    expect(installerArguments, contains('/RESTARTAPPLICATIONS'));
+  });
 }

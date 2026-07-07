@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:screen_retriever/screen_retriever.dart';
@@ -7,14 +9,13 @@ import 'package:window_manager/window_manager.dart';
 import '../state/providers.dart';
 import '../theme.dart';
 import '../window_config.dart';
-import 'design/glass_surface.dart';
 import 'design/motion.dart';
 import 'tab_bar.dart';
 import 'screens/projects_screen.dart';
 import 'screens/settings_screen.dart';
 
 // Size of the custom tray popup (in place of the native Win32 menu).
-const _kTrayMenuSize = Size(212, 96);
+const kTrayMenuSize = Size(176, 72);
 
 class EditHubApp extends ConsumerStatefulWidget {
   const EditHubApp({super.key});
@@ -56,20 +57,20 @@ class _EditHubAppState extends ConsumerState<EditHubApp>
   }
 
   Future<void> _quit() async {
-    await windowManager.setPreventClose(false);
-    await windowManager.destroy();
+    await trayManager.destroy();
+    exit(0);
   }
 
   /// Show the app-styled menu as a small window anchored above the cursor.
   Future<void> _showTrayMenu() async {
     try {
       final cursor = await screenRetriever.getCursorScreenPoint();
-      final w = _kTrayMenuSize.width, h = _kTrayMenuSize.height;
+      final w = kTrayMenuSize.width, h = kTrayMenuSize.height;
       final x = (cursor.dx - w).clamp(8.0, double.infinity);
       final y = (cursor.dy - h - 8).clamp(8.0, double.infinity);
       setState(() => _trayMenu = true);
       await windowManager.setMinimumSize(const Size(0, 0));
-      await windowManager.setSize(_kTrayMenuSize);
+      await windowManager.setSize(kTrayMenuSize);
       await windowManager.setPosition(Offset(x, y));
       await windowManager.setAlwaysOnTop(true);
       await windowManager.setSkipTaskbar(true);
@@ -158,15 +159,9 @@ class _TrayMenu extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.transparent,
-      body: GlassSurface(
-        blur: 26,
-        radius: 14,
-        scrim: .62,
-        frost: .1,
-        shadow: true,
-        borderRadius: BorderRadius.circular(14),
-        padding: const EdgeInsets.all(6),
+      backgroundColor: AppColors.card,
+      body: Padding(
+        padding: const EdgeInsets.all(4),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -218,25 +213,25 @@ class _TrayItemState extends State<_TrayItem> {
         pressedScale: .97,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 120),
-          height: 38,
-          padding: const EdgeInsets.symmetric(horizontal: 10),
+          height: 32,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
           decoration: BoxDecoration(
             color: _hover
                 ? (widget.danger
                       ? AppColors.bad.withValues(alpha: .18)
                       : const Color(0x1FFFFFFF))
                 : Colors.transparent,
-            borderRadius: BorderRadius.circular(9),
+            borderRadius: BorderRadius.circular(7),
           ),
           child: Row(
             children: [
-              Icon(widget.icon, size: 17, color: color),
-              const SizedBox(width: 10),
+              Icon(widget.icon, size: 15, color: color),
+              const SizedBox(width: 8),
               Text(
                 widget.label,
                 style: TextStyle(
                   color: color,
-                  fontSize: 13,
+                  fontSize: 12,
                   fontWeight: FontWeight.w600,
                 ),
               ),

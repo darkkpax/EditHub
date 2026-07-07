@@ -14,6 +14,12 @@ import '../ui/design/glass_surface.dart';
 const _feedUrl =
     'https://github.com/darkkpax/EditHub/releases/latest/download/appcast.xml';
 
+const installerArguments = [
+  '/VERYSILENT',
+  '/NORESTART',
+  '/RESTARTAPPLICATIONS',
+];
+
 /// The newest published version + its installer URL, pulled from the appcast.
 ({String version, String url})? parseAppcast(String xml) {
   final url = RegExp(r'url="([^"]+\.exe)"').firstMatch(xml)?.group(1);
@@ -109,7 +115,7 @@ class _UpdateDialogState extends State<_UpdateDialog> {
       // Silent in-place upgrade; the installer closes the running app itself.
       await Process.start(
         file.path,
-        ['/VERYSILENT', '/NORESTART'],
+        installerArguments,
         mode: ProcessStartMode.detached,
       );
       exit(0);
@@ -172,20 +178,31 @@ class _UpdateDialogState extends State<_UpdateDialog> {
                         color: AppColors.accent.withValues(alpha: .16),
                         borderRadius: BorderRadius.circular(11),
                       ),
-                      child: const Icon(Icons.rocket_launch_rounded,
-                          color: AppColors.accent, size: 20),
+                      child: const Icon(
+                        Icons.rocket_launch_rounded,
+                        color: AppColors.accent,
+                        size: 20,
+                      ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('Доступно обновление',
-                              style: TextStyle(
-                                  fontSize: 15, fontWeight: FontWeight.w700)),
-                          Text('Версия ${widget.version}',
-                              style: const TextStyle(
-                                  color: AppColors.dim, fontSize: 12)),
+                          const Text(
+                            'Доступно обновление',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          Text(
+                            'Версия ${widget.version}',
+                            style: const TextStyle(
+                              color: AppColors.dim,
+                              fontSize: 12,
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -193,8 +210,10 @@ class _UpdateDialogState extends State<_UpdateDialog> {
                 ),
                 if (_error != null) ...[
                   const SizedBox(height: 14),
-                  Text(_error!,
-                      style: const TextStyle(color: AppColors.bad, fontSize: 12)),
+                  Text(
+                    _error!,
+                    style: const TextStyle(color: AppColors.bad, fontSize: 12),
+                  ),
                 ],
                 const SizedBox(height: 18),
                 if (downloading)
@@ -212,8 +231,10 @@ class _UpdateDialogState extends State<_UpdateDialog> {
                     children: [
                       TextButton(
                         onPressed: () => Navigator.of(context).pop(),
-                        child: const Text('Позже',
-                            style: TextStyle(color: AppColors.dim)),
+                        child: const Text(
+                          'Позже',
+                          style: TextStyle(color: AppColors.dim),
+                        ),
                       ),
                       const SizedBox(width: 8),
                       FilledButton(

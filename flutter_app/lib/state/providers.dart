@@ -109,12 +109,15 @@ final projectsProvider = FutureProvider<List<ProjectInfo>>((ref) async {
   final settings = ref.watch(settingsProvider);
   final store = ref.read(projectStoreProvider);
   final projects = store.listProjects(settings.projectsFolder);
-  final archived = ref.watch(icloudServiceProvider).archiveFolder;
+  final icloud = ref.watch(icloudServiceProvider);
+  icloud.prepareArchive();
   final seen = projects.map((project) => project.id).toSet();
-  projects.addAll(
-    store
-        .listArchivedProjects(archived)
-        .where((project) => seen.add(project.id)),
-  );
+  for (final archived in icloud.archiveSearchFolders) {
+    projects.addAll(
+      store
+          .listArchivedProjects(archived)
+          .where((project) => seen.add(project.id)),
+    );
+  }
   return projects;
 });
