@@ -80,7 +80,9 @@ class ArchiverService {
     }
   }
 
-  Future<void> restoreFromArchive(
+  /// Moves an archived project back to the local projects folder. Returns the
+  /// new local path so callers can re-read the manifest / re-fetch footage.
+  Future<String> restoreFromArchive(
     String archivePath,
     String projectsFolder,
   ) async {
@@ -102,6 +104,7 @@ class ArchiverService {
     }
     _moveDirectory(archivePath, dest);
     _setCloudPinState(dest, onlineOnly: false);
+    return dest;
   }
 
   /// Auto-archive: projects not from the current month, or untouched longer

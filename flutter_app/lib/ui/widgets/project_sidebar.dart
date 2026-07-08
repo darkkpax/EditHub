@@ -42,12 +42,14 @@ class ProjectSidebar extends StatelessWidget {
     required this.projects,
     required this.selectedId,
     required this.onSelected,
+    this.onContextMenu,
     this.query = '',
   });
 
   final List<ProjectInfo> projects;
   final String? selectedId;
   final ValueChanged<ProjectInfo> onSelected;
+  final void Function(ProjectInfo project, Offset globalPosition)? onContextMenu;
   final String query;
 
   @override
@@ -113,6 +115,9 @@ class ProjectSidebar extends StatelessWidget {
                               project: project,
                               selected: selectedId == project.id,
                               onTap: () => onSelected(project),
+                              onContextMenu: onContextMenu == null
+                                  ? null
+                                  : (pos) => onContextMenu!(project, pos),
                             ),
                           ),
                       ],
@@ -144,18 +149,24 @@ class _ProjectRow extends StatelessWidget {
     required this.project,
     required this.selected,
     required this.onTap,
+    this.onContextMenu,
   });
 
   final ProjectInfo project;
   final bool selected;
   final VoidCallback onTap;
+  final ValueChanged<Offset>? onContextMenu;
 
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.only(bottom: 2),
-    child: PressableScale(
-      onTap: onTap,
-      pressedScale: .98,
+    child: GestureDetector(
+      onSecondaryTapDown: onContextMenu == null
+          ? null
+          : (details) => onContextMenu!(details.globalPosition),
+      child: PressableScale(
+        onTap: onTap,
+        pressedScale: .98,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
         curve: Curves.easeOutCubic,
@@ -224,6 +235,7 @@ class _ProjectRow extends StatelessWidget {
             ),
           ],
         ),
+      ),
       ),
     ),
   );

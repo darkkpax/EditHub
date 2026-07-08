@@ -116,16 +116,52 @@ class ProjectRepository {
     unawaited(task.whenComplete(() => _downloads.remove(project.id)));
   }
 
+  /// Adds footage link(s) to an existing project and downloads just the new
+  /// ones. Throws synchronously (FormatException) on an invalid URL.
+  void addFootage(
+    ProjectInfo project,
+    List<String> urls,
+    void Function(ProjectInfo project)? onChanged,
+  ) {
+    final folder = project.folderPath;
+    if (folder == null) return;
+    final clean = urls
+        .map((url) => url.trim())
+        .where((url) => url.isNotEmpty)
+        .toList();
+    for (final url in clean) {
+      normalizeDownloadUrl(url); // validate before touching disk
+    }
+    final current = store.readProjectInfo(folder) ?? project;
+    final newUrls = clean
+        .where((url) => !current.footageUrls.contains(url))
+        .toList();
+    if (newUrls.isEmpty) return;
+    final merged = [...current.footageUrls, ...newUrls];
+    final updated = current.copyWith(
+      folderPath: folder,
+      footageUrls: merged,
+      status: ProjectStatus.downloading,
+    );
+    store.writeProjectInfo(folder, updated);
+    onChanged?.call(updated);
+    if (_downloads.containsKey(project.id)) return;
+    final task = _runDownloads(updated, onChanged, urls: newUrls);
+    _downloads[project.id] = task;
+    unawaited(task.whenComplete(() => _downloads.remove(project.id)));
+  }
+
   Future<void> _runDownloads(
     ProjectInfo initial,
-    void Function(ProjectInfo project)? onChanged,
-  ) async {
+    void Function(ProjectInfo project)? onChanged, {
+    List<String>? urls,
+  }) async {
     final folder = initial.folderPath!;
     var paused = false;
     try {
       await downloader.downloadAll(
         projectId: initial.id,
-        urls: initial.footageUrls,
+        urls: urls ?? initial.footageUrls,
         destinationFolder: p.join(folder, 'FOOTAGE'),
         onProgress: (progress) {
           final current = store.readProjectInfo(folder) ?? initial;

@@ -76,6 +76,7 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen>
                   selectedId: selected?.id,
                   onSelected: (project) =>
                       setState(() => _selectedId = project.id),
+                  onContextMenu: _showProjectMenu,
                   query: _query,
                 ),
                 Expanded(
@@ -365,17 +366,38 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen>
     final folder = project.folderPath;
     if (folder == null) return;
     try {
-      await ref
+      final dest = await ref
           .read(archiverServiceProvider)
           .restoreFromArchive(
             folder,
             ref.read(settingsProvider).projectsFolder,
           );
       ref.invalidate(projectsProvider);
-      if (mounted) _message('${project.name} restored.');
+      // Offload strips FOOTAGE to save space; re-fetch it from the saved links
+      // so restoring on any machine brings the media back too.
+      final restored = ref.read(projectStoreProvider).readProjectInfo(dest);
+      if (restored != null &&
+          restored.footageUrls.isNotEmpty &&
+          !_hasFootage(dest)) {
+        ref
+            .read(projectRepositoryProvider)
+            .resumeDownload(
+              restored.copyWith(folderPath: dest),
+              (_) => ref.invalidate(projectsProvider),
+            );
+        if (mounted) _message('${project.name} restored — re-downloading footage…');
+      } else if (mounted) {
+        _message('${project.name} restored.');
+      }
     } catch (error) {
       if (mounted) _message(error.toString(), error: true);
     }
+  }
+
+  bool _hasFootage(String projectFolder) {
+    final dir = Directory('$projectFolder${Platform.pathSeparator}FOOTAGE');
+    return dir.existsSync() &&
+        dir.listSync(recursive: true, followLinks: false).whereType<File>().isNotEmpty;
   }
 
   Future<void> _delete(ProjectInfo project) async {
@@ -407,6 +429,107 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen>
     } catch (error) {
       if (mounted) _message(error.toString(), error: true);
     }
+  }
+
+  /// Right-click menu on a project row.
+  Future<void> _showProjectMenu(ProjectInfo project, Offset position) async {
+    final archived =
+        project.status == ProjectStatus.archive ||
+        project.status == ProjectStatus.incloud;
+    final overlay =
+        Overlay.of(context).context.findRenderObject() as RenderBox;
+    final selected = await showMenu<String>(
+      context: context,
+      color: AppColors.card2,
+      position: RelativeRect.fromRect(
+        position & const Size(40, 40),
+        Offset.zero & overlay.size,
+      ),
+      items: [
+        PopupMenuItem(value: 'open', child: Text(archived ? 'Restore' : 'Open')),
+        const PopupMenuItem(value: 'link', child: Text('Add footage link…')),
+        if (project.editor == 'davinci')
+          const PopupMenuItem(
+            value: 'drp',
+            child: Text('Export DaVinci project (.drp)'),
+          ),
+        const PopupMenuItem(value: 'reveal', child: Text('Show in Explorer')),
+        if (!archived)
+          const PopupMenuItem(value: 'offload', child: Text('Offload to iCloud')),
+        const PopupMenuItem(
+          value: 'delete',
+          child: Text('Delete', style: TextStyle(color: AppColors.bad)),
+        ),
+      ],
+    );
+    if (!mounted) return;
+    switch (selected) {
+      case 'open':
+        archived ? _restore(project) : _open(project);
+      case 'link':
+        _addLink(project);
+      case 'drp':
+        _exportDrp(project);
+      case 'reveal':
+        _reveal(project);
+      case 'offload':
+        _archive(project);
+      case 'delete':
+        _delete(project);
+    }
+  }
+
+  /// Adds a footage link to an existing project and starts downloading it.
+  Future<void> _addLink(ProjectInfo project) async {
+    final controller = TextEditingController();
+    final url = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppColors.card2,
+        title: const Text('Add footage link'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(
+            hintText: 'Google Drive / Dropbox / direct URL',
+          ),
+          onSubmitted: (v) => Navigator.pop(context, v),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text),
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
+    if (url == null || url.trim().isEmpty || !mounted) return;
+    try {
+      ref
+          .read(projectRepositoryProvider)
+          .addFootage(project, [url], (_) => ref.invalidate(projectsProvider));
+      setState(() => _selectedId = project.id);
+    } catch (error) {
+      if (mounted) _message(error.toString(), error: true);
+    }
+  }
+
+  Future<void> _exportDrp(ProjectInfo project) async {
+    final folder = project.folderPath;
+    if (folder == null) return;
+    _message('Exporting DaVinci project…');
+    final result = await ref.read(davinciServiceProvider).export(folder);
+    if (!mounted) return;
+    _message(
+      result.exported
+          ? 'Saved ${result.drpFilePath}'
+          : 'Export failed: ${result.message}',
+      error: !result.exported,
+    );
   }
 
   void _message(String text, {bool error = false}) {
