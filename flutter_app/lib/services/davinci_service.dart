@@ -159,6 +159,42 @@ class DaVinciService {
     }
   }
 
+  /// Exports a `.drp` for every given project folder in one pass. Starts
+  /// Resolve if needed (export needs a running instance with scripting on).
+  /// Only projects that already exist in this machine's Resolve library can be
+  /// exported. Returns how many succeeded.
+  Future<({int exported, int total, String? message})> exportAll(
+    String davinciPath,
+    List<String> projectFolders,
+  ) async {
+    if (projectFolders.isEmpty) {
+      return (exported: 0, total: 0, message: null);
+    }
+    final resolvePath = davinciPath.isNotEmpty ? davinciPath : autoDetect();
+    if (!File(resolvePath).existsSync()) {
+      return (
+        exported: 0,
+        total: projectFolders.length,
+        message: 'DaVinci Resolve not found',
+      );
+    }
+    if (!isResolveRunning()) {
+      await Process.start(resolvePath, [], mode: ProcessStartMode.detached);
+      await Future.delayed(const Duration(seconds: 3));
+    }
+    var ok = 0;
+    String? lastError;
+    for (final folder in projectFolders) {
+      final result = await export(folder);
+      if (result.exported) {
+        ok++;
+      } else {
+        lastError = result.message;
+      }
+    }
+    return (exported: ok, total: projectFolders.length, message: lastError);
+  }
+
   Future<({bool exported, String? message, String drpFilePath})> export(
     String projectFolder,
   ) async {

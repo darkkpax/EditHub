@@ -2,6 +2,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../models/models.dart';
 import '../../state/providers.dart';
 import '../../theme.dart';
 
@@ -63,11 +64,92 @@ class SettingsScreen extends ConsumerWidget {
         const SizedBox(height: 12),
         const _GoogleDriveRow(),
         const SizedBox(height: 12),
+        const _ExportProjectsRow(),
+        const SizedBox(height: 12),
         _NumberRow(
           label: 'Auto-offload after (days)',
           value: settings.autoArchiveDays,
           onChanged: (v) =>
               notifier.update((s) => s.copyWith(autoArchiveDays: v)),
+        ),
+      ],
+    );
+  }
+}
+
+/// One-shot: export a `.drp` into every current DaVinci project's folder.
+class _ExportProjectsRow extends ConsumerStatefulWidget {
+  const _ExportProjectsRow();
+
+  @override
+  ConsumerState<_ExportProjectsRow> createState() => _ExportProjectsRowState();
+}
+
+class _ExportProjectsRowState extends ConsumerState<_ExportProjectsRow> {
+  bool _busy = false;
+
+  Future<void> _exportAll() async {
+    final folders = (ref.read(projectsProvider).value ?? const [])
+        .where(
+          (project) =>
+              project.editor == 'davinci' &&
+              project.folderPath != null &&
+              project.status != ProjectStatus.archive &&
+              project.status != ProjectStatus.incloud,
+        )
+        .map((project) => project.folderPath!)
+        .toList();
+    if (folders.isEmpty) {
+      _snack('No local DaVinci projects to export.');
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      final result = await ref
+          .read(davinciServiceProvider)
+          .exportAll(ref.read(settingsProvider).davinciPath, folders);
+      _snack(
+        'Exported ${result.exported} of ${result.total} project file(s).'
+        '${result.exported < result.total && result.message != null ? ' Last error: ${result.message}' : ''}',
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  void _snack(String text) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(text)));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'DaVinci project files',
+          style: TextStyle(color: AppColors.dim, fontSize: 13),
+        ),
+        const SizedBox(height: 6),
+        FilledButton.icon(
+          onPressed: _busy ? null : _exportAll,
+          icon: _busy
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.save_alt_rounded),
+          label: const Text('Export .drp for all projects'),
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          'Requires DaVinci Resolve open with scripting enabled. Switches the '
+          'active project as it exports each one.',
+          style: TextStyle(color: AppColors.dim, fontSize: 11),
         ),
       ],
     );
