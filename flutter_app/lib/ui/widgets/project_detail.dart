@@ -163,12 +163,16 @@ class ProjectDetail extends StatelessWidget {
     required this.project,
     required this.folders,
     required this.onCancelDownload,
+    required this.onPause,
+    required this.onResume,
     required this.onEntryOpen,
   });
 
   final ProjectInfo project;
   final Future<List<FolderEntry>> folders;
   final VoidCallback onCancelDownload;
+  final VoidCallback onPause;
+  final VoidCallback onResume;
   final ValueChanged<FolderEntry> onEntryOpen;
 
   @override
@@ -176,14 +180,14 @@ class ProjectDetail extends StatelessWidget {
     final archived =
         project.status == ProjectStatus.archive ||
         project.status == ProjectStatus.incloud;
+    final paused = project.status == ProjectStatus.paused;
+    final busy = project.status == ProjectStatus.downloading || paused;
     final averageProgress = project.downloadProgress.isEmpty
         ? 0.0
         : project.downloadProgress.values.reduce((a, b) => a + b) /
               project.downloadProgress.length;
 
-    final contentTop = project.status == ProjectStatus.downloading
-        ? 184.0
-        : 116.0;
+    final contentTop = busy ? 184.0 : 116.0;
     return Stack(
       children: [
         Positioned.fill(
@@ -220,7 +224,7 @@ class ProjectDetail extends StatelessWidget {
                   },
                 ),
         ),
-        if (project.status == ProjectStatus.downloading)
+        if (busy)
           Positioned(
             top: 116,
             left: 0,
@@ -230,9 +234,11 @@ class ProjectDetail extends StatelessWidget {
               color: AppColors.bg,
               child: Row(
                 children: [
-                  const Icon(
-                    Icons.downloading_rounded,
-                    color: AppColors.accent,
+                  Icon(
+                    paused
+                        ? Icons.pause_circle_rounded
+                        : Icons.downloading_rounded,
+                    color: paused ? AppColors.dim : AppColors.accent,
                   ),
                   const SizedBox(width: 10),
                   Expanded(
@@ -240,17 +246,29 @@ class ProjectDetail extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Downloading footage · ${averageProgress.round()}%',
+                          paused
+                              ? 'Paused · ${averageProgress.round()}%'
+                              : 'Downloading footage · ${averageProgress.round()}%',
                           style: const TextStyle(fontSize: 12),
                         ),
                         const SizedBox(height: 6),
-                        LinearProgressIndicator(value: averageProgress / 100),
+                        LinearProgressIndicator(
+                          value: averageProgress / 100,
+                          color: paused ? AppColors.dim : null,
+                        ),
                       ],
                     ),
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 4),
+                  TextButton(
+                    onPressed: paused ? onResume : onPause,
+                    child: Text(paused ? 'Resume' : 'Pause'),
+                  ),
                   TextButton(
                     onPressed: onCancelDownload,
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppColors.dim,
+                    ),
                     child: const Text('Cancel'),
                   ),
                 ],
@@ -365,6 +383,7 @@ class _StatusBadge extends StatelessWidget {
     final (label, color) = switch (status) {
       ProjectStatus.active => ('Open', AppColors.accent),
       ProjectStatus.downloading => ('Downloading', AppColors.warn),
+      ProjectStatus.paused => ('Paused', AppColors.dim),
       ProjectStatus.uploading => ('iCloud', AppColors.brand),
       ProjectStatus.archive ||
       ProjectStatus.incloud => ('iCloud', AppColors.warn),

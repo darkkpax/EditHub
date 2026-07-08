@@ -47,6 +47,8 @@ void main() {
                 folders: Future.value([folder, docs]),
                 onEntryOpen: (entry) => opened = entry,
                 onCancelDownload: () {},
+                onPause: () {},
+                onResume: () {},
               ),
               ProjectHeader(
                 project: project,

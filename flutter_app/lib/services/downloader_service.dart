@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:archive/archive_io.dart';
 import 'package:http/http.dart' as http;
@@ -62,12 +63,17 @@ class DownloaderService {
     http.Client? client,
     this.maxAttempts = 5,
     this.retryBaseDelay = const Duration(seconds: 2),
+    this.maxConcurrent = 4,
     this.googleDriveAuth,
   }) : _client = client ?? http.Client();
 
   final http.Client _client;
   final int maxAttempts;
   final Duration retryBaseDelay;
+
+  /// Cap on files downloading at once so a many-file project doesn't open
+  /// dozens of sockets and starve the disk/network.
+  final int maxConcurrent;
   final GoogleDriveAuthService? googleDriveAuth;
   final Set<String> _cancelledProjects = {};
 
@@ -99,9 +105,16 @@ class DownloaderService {
         }
         jobs.add((rawUrl: url, driveId: null, relativePath: null));
       }
-      return await Future.wait(
-        jobs.map(
-          (job) => _downloadOne(
+      // Bounded worker pool: at most [maxConcurrent] files in flight. Workers
+      // pull the next job index until the queue drains.
+      final results = List<File?>.filled(jobs.length, null);
+      var next = 0;
+      Future<void> worker() async {
+        while (true) {
+          final index = next++;
+          if (index >= jobs.length) break;
+          final job = jobs[index];
+          results[index] = await _downloadOne(
             projectId: projectId,
             rawUrl: job.rawUrl,
             normalizedUrl: job.driveId == null
@@ -114,9 +127,14 @@ class DownloaderService {
                 ? null
                 : p.basename(job.relativePath!),
             onProgress: onProgress,
-          ),
-        ),
-      );
+          );
+        }
+      }
+
+      await Future.wait([
+        for (var i = 0; i < min(maxConcurrent, jobs.length); i++) worker(),
+      ]);
+      return results.whereType<File>().toList();
     } finally {
       _cancelledProjects.remove(projectId);
     }

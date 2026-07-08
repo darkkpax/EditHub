@@ -105,6 +105,28 @@ final autoArchiveProvider = Provider<void>((ref) {
   ref.onDispose(timer.cancel);
 });
 
+/// Resumes downloads that were interrupted by a crash/quit: any project left
+/// in `downloading` state on disk is restarted (the downloader picks up each
+/// file from its `.part`). Paused projects are left alone — the user stopped
+/// them on purpose. Watched once at app boot.
+final downloadResumeProvider = Provider<void>((ref) {
+  final handled = <String>{};
+  ref.listen<AsyncValue<List<ProjectInfo>>>(projectsProvider, (_, next) {
+    final projects = next.value;
+    if (projects == null) return;
+    final repo = ref.read(projectRepositoryProvider);
+    for (final project in projects) {
+      if (project.status == ProjectStatus.downloading &&
+          project.footageUrls.isNotEmpty &&
+          project.folderPath != null &&
+          !repo.isDownloading(project.id) &&
+          handled.add(project.id)) {
+        repo.resumeDownload(project, (_) => ref.invalidate(projectsProvider));
+      }
+    }
+  }, fireImmediately: true);
+});
+
 /// Projects scanned from the configured projects folder.
 ///
 /// Two-phase so first launch isn't blocked on iCloud: the local folder scan

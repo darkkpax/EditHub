@@ -142,6 +142,8 @@ class _EditHubAppState extends ConsumerState<EditHubApp>
     ref.watch(authProvider);
     // Start the hourly auto-offload timer for its lifetime.
     ref.watch(autoArchiveProvider);
+    // Resume any download interrupted by a previous crash/quit.
+    ref.watch(downloadResumeProvider);
 
     if (_trayMenu) {
       return _TrayMenu(onOpen: _openApp, onQuit: _quit);

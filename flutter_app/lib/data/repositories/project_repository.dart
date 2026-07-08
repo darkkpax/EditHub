@@ -16,6 +16,9 @@ class ProjectRepository {
   final DownloaderService downloader;
   final ProjectApiService? api;
   final Map<String, Future<void>> _downloads = {};
+  // Project ids whose download was paused (not cancelled) — used to leave the
+  // progress in place and mark the project `paused` rather than `ready`.
+  final Set<String> _paused = {};
 
   Future<ProjectInfo> create({
     required String projectsFolder,
@@ -78,13 +81,47 @@ class ProjectRepository {
   Future<void> waitForDownload(String projectId) =>
       _downloads[projectId] ?? Future<void>.value();
 
-  void cancelDownload(String projectId) => downloader.cancel(projectId);
+  bool isDownloading(String projectId) => _downloads.containsKey(projectId);
+
+  /// Abandon the download. Completed files stay; the project returns to `ready`.
+  void cancelDownload(String projectId) {
+    _paused.remove(projectId);
+    downloader.cancel(projectId);
+  }
+
+  /// Stop the download but keep the partial (`.part`) files and progress so it
+  /// can be resumed later. Marks the project `paused`.
+  void pauseDownload(String projectId) {
+    _paused.add(projectId);
+    downloader.cancel(projectId);
+  }
+
+  /// Resume a paused/interrupted download. The downloader picks up each file
+  /// from its `.part` via an HTTP Range request, so no bytes are re-fetched.
+  void resumeDownload(
+    ProjectInfo project,
+    void Function(ProjectInfo project)? onChanged,
+  ) {
+    if (_downloads.containsKey(project.id) || project.folderPath == null) return;
+    _paused.remove(project.id);
+    final folder = project.folderPath!;
+    final running = (store.readProjectInfo(folder) ?? project).copyWith(
+      folderPath: folder,
+      status: ProjectStatus.downloading,
+    );
+    store.writeProjectInfo(folder, running);
+    onChanged?.call(running);
+    final task = _runDownloads(running, onChanged);
+    _downloads[project.id] = task;
+    unawaited(task.whenComplete(() => _downloads.remove(project.id)));
+  }
 
   Future<void> _runDownloads(
     ProjectInfo initial,
     void Function(ProjectInfo project)? onChanged,
   ) async {
     final folder = initial.folderPath!;
+    var paused = false;
     try {
       await downloader.downloadAll(
         projectId: initial.id,
@@ -105,16 +142,19 @@ class ProjectRepository {
         },
       );
     } on DownloadCancelledException {
-      // Cancellation leaves already completed files in place.
+      // Distinguish a pause (keep progress, resumable) from a plain cancel.
+      paused = _paused.remove(initial.id);
     } finally {
       final current = store.readProjectInfo(folder) ?? initial;
-      final ready = current.copyWith(
-        folderPath: folder,
-        status: ProjectStatus.ready,
-        downloadProgress: const {},
-      );
-      store.writeProjectInfo(folder, ready);
-      onChanged?.call(ready);
+      final next = paused
+          ? current.copyWith(folderPath: folder, status: ProjectStatus.paused)
+          : current.copyWith(
+              folderPath: folder,
+              status: ProjectStatus.ready,
+              downloadProgress: const {},
+            );
+      store.writeProjectInfo(folder, next);
+      onChanged?.call(next);
     }
   }
 }

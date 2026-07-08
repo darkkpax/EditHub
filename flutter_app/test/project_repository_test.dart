@@ -82,6 +82,47 @@ void main() {
     }
   });
 
+  test('resume restarts a paused download and finishes ready', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    server.listen((request) async {
+      request.response.headers
+        ..contentLength = 3
+        ..set('content-disposition', 'attachment; filename="source.mov"');
+      request.response.add([1, 2, 3]);
+      await request.response.close();
+    });
+    final store = ProjectStore();
+    final repository = ProjectRepository(
+      store: store,
+      downloader: DownloaderService(maxAttempts: 1),
+    );
+
+    try {
+      final project = await repository.create(
+        projectsFolder: temp.path,
+        name: 'Resumable film',
+        urls: ['http://127.0.0.1:${server.port}/source'],
+      );
+      // Pause, then let the in-flight task settle to `paused`.
+      repository.pauseDownload(project.id);
+      await repository.waitForDownload(project.id);
+
+      // Resume from disk state and let it complete.
+      final paused = store.readProjectInfo(project.folderPath!)!;
+      repository.resumeDownload(paused, null);
+      await repository.waitForDownload(project.id);
+
+      final saved = store.readProjectInfo(project.folderPath!);
+      expect(saved?.status, ProjectStatus.ready);
+      expect(
+        File(p.join(project.folderPath!, 'FOOTAGE', 'source.mov')).existsSync(),
+        isTrue,
+      );
+    } finally {
+      await server.close(force: true);
+    }
+  });
+
   test('create rejects names that can escape the projects root', () async {
     final repository = ProjectRepository(
       store: ProjectStore(),

@@ -5,6 +5,7 @@ import 'dart:convert';
 enum ProjectStatus {
   active,
   downloading,
+  paused,
   uploading,
   incloud,
   archive,
@@ -16,6 +17,8 @@ enum ProjectStatus {
         return ProjectStatus.active;
       case 'downloading':
         return ProjectStatus.downloading;
+      case 'paused':
+        return ProjectStatus.paused;
       case 'uploading':
         return ProjectStatus.uploading;
       case 'incloud':

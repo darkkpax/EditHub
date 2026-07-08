@@ -230,6 +230,7 @@ class _ProjectRow extends StatelessWidget {
 
   String _status(ProjectStatus status) => switch (status) {
     ProjectStatus.downloading => 'Downloading',
+    ProjectStatus.paused => 'Paused',
     ProjectStatus.uploading => 'Uploading to iCloud',
     ProjectStatus.archive || ProjectStatus.incloud => 'In iCloud',
     ProjectStatus.active => 'Open',

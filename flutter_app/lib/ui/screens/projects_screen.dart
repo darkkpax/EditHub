@@ -105,6 +105,15 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen>
                             onCancelDownload: () => ref
                                 .read(projectRepositoryProvider)
                                 .cancelDownload(selected.id),
+                            onPause: () => ref
+                                .read(projectRepositoryProvider)
+                                .pauseDownload(selected.id),
+                            onResume: () => ref
+                                .read(projectRepositoryProvider)
+                                .resumeDownload(
+                                  selected,
+                                  (_) => ref.invalidate(projectsProvider),
+                                ),
                           ),
                   ),
                 ),
