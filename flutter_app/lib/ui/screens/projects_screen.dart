@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -301,6 +302,19 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen>
         );
     if (mounted) setState(() => _selectedId = project.id);
     ref.invalidate(projectsProvider);
+
+    // Auto-create DaVinci project file if using DaVinci editor.
+    if (editor == 'davinci' && project.folderPath != null) {
+      unawaited(
+        ref
+            .read(davinciServiceProvider)
+            .export(project.folderPath!)
+            .catchError((_) {
+              // Silently ignore if DaVinci unavailable
+              return (exported: false, message: null, drpFilePath: '');
+            }),
+      );
+    }
   }
 
   Future<void> _open(ProjectInfo project) async {
