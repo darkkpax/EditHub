@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../models/models.dart';
+import '../../services/dropfx_handoff_service.dart';
 import '../../state/providers.dart';
 import '../../theme.dart';
 import '../widgets/new_project_dialog.dart';
@@ -24,6 +25,9 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen>
     with SingleTickerProviderStateMixin {
   String? _selectedId;
   String _query = '';
+  // Tells DropFX which project is open (drag-to-SFX target).
+  final _dropfxHandoff = DropFXHandoffService();
+  String? _handoffWrittenId;
   final _createLink = LayerLink();
   OverlayEntry? _createEntry;
   // Drives the create popover in AND out (fade + scale) so dismissal animates.
@@ -67,6 +71,11 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen>
         final selected =
             projects.where((item) => item.id == _selectedId).firstOrNull ??
             projects.firstOrNull;
+        // Hand the open project off to DropFX so dragged sounds copy into it.
+        if (selected != null && selected.id != _handoffWrittenId) {
+          _handoffWrittenId = selected.id;
+          _dropfxHandoff.setActive(selected);
+        }
         return Stack(
           children: [
             // Bodies flow full-height under the shared glass header.
