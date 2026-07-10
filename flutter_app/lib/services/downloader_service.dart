@@ -48,10 +48,13 @@ String normalizeDownloadUrl(String rawUrl) {
   }
 
   if (uri.host == 'dropbox.com' || uri.host == 'www.dropbox.com') {
+    final params = {...uri.queryParameters, 'dl': '1'};
+    // ponytail: Dropbox changed from /s/ to /scl/fo/ and /sh/ for new shared links.
+    // Both formats need dl=1, but modern format requires rlkey to persist.
     return uri
         .replace(
           host: 'dl.dropboxusercontent.com',
-          queryParameters: {...uri.queryParameters, 'dl': '1'},
+          queryParameters: params,
         )
         .toString();
   }
@@ -160,6 +163,9 @@ class DownloaderService {
         final partial = File(p.join(destinationFolder, '$fallbackName.part'));
         final existing = await partial.exists() ? await partial.length() : 0;
         final request = http.Request('GET', Uri.parse(normalized));
+        // ponytail: Dropbox blocks requests without User-Agent. Set a generic one
+        // to avoid 403 Forbidden responses on newer shared links (/scl/fo/, /sh/).
+        request.headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
         if (Uri.parse(rawUrl).host == 'drive.google.com') {
           final token = await googleDriveAuth?.accessToken();
           if (token != null) {

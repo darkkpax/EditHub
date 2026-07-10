@@ -18,6 +18,14 @@ void main() {
       normalizeDownloadUrl('https://www.dropbox.com/s/abc/video.mp4?dl=0'),
       'https://dl.dropboxusercontent.com/s/abc/video.mp4?dl=1',
     );
+    // Modern Dropbox shared folder format with rlkey
+    final modernResult = normalizeDownloadUrl(
+      'https://www.dropbox.com/scl/fo/j37idqx0q0bu8qzaxd8kb/abc?rlkey=xyz&dl=0',
+    );
+    expect(modernResult, contains('dl.dropboxusercontent.com'));
+    expect(modernResult, contains('scl/fo/'));
+    expect(modernResult, contains('rlkey=xyz'));
+    expect(modernResult, contains('dl=1'));
     expect(
       () => normalizeDownloadUrl('not a URL'),
       throwsA(isA<FormatException>()),
