@@ -261,16 +261,6 @@ export default function SettingsScreen() {
         </SettingsRow>
 
         <SettingsRow
-          label="DropFX Library"
-          hint="Sound effects library root"
-        >
-          <PathPicker
-            value={local.dropfxLibrary}
-            onChange={(p) => updateLocal({ dropfxLibrary: p })}
-          />
-        </SettingsRow>
-
-        <SettingsRow
           label="iCloud Drive Path"
           hint="Auto-detected or configured manually"
         >

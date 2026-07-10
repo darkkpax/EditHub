@@ -5,17 +5,19 @@
   "main": "dist/electron/main.js",
   "scripts": {
     "dev": "concurrently \"npm run dev:vite\" \"npm run dev:electron\"",
-    "dev:vite": "vite",
+    "dev:vite": "vite --host 127.0.0.1 --port 5173 --strictPort",
     "dev:electron": "tsc -p tsconfig.node.json && electron .",
     "build": "npm run build:vite && npm run build:electron",
     "build:vite": "vite build",
     "build:electron": "tsc -p tsconfig.node.json",
     "dist": "npm run build && electron-builder",
-    "dist:win": "npm run build && electron-builder --win"
+    "dist:win": "npm run build && electron-builder --win",
+    "release": "npm run build && electron-builder --win --publish always"
   },
   "dependencies": {
     "chokidar": "^3.5.3",
     "adm-zip": "^0.5.10",
+    "electron-updater": "^6.3.9",
     "uuid": "^9.0.1",
     "zustand": "^4.5.2",
     "react": "^18.2.0",

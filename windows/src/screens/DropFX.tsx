@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useStore } from '../store/useStore'
 import { IconSearch, IconWaveform, IconPlay, IconPause } from '../components/icons/icons'
+import { WindowControls } from '../components/TitleBar'
 
-const BACKEND = 'http://localhost:8765'
+const BACKEND = 'http://127.0.0.1:8765'
 
 interface AssetInfo {
   id: string
@@ -283,7 +284,7 @@ function FolderTreeItem({
 // ── DropFX screen ────────────────────────────────────────────────────────────
 
 export default function DropFX() {
-  const { dropfxAvailable, addToast, activeProjectId, projects } = useStore()
+  const { dropfxAvailable, addToast, activeProjectId, projects, settings, setSettings } = useStore()
   const activeProject = projects.find((p) => p.id === activeProjectId)
   const [assets, setAssets] = useState<AssetInfo[]>([])
   const [folders, setFolders] = useState<FolderNode[]>([])
@@ -291,6 +292,15 @@ export default function DropFX() {
   const [search, setSearch] = useState('')
   const [selectedTags, setSelectedTags] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
+
+  const chooseLibrary = async () => {
+    const picked = await window.edithub.pickFolder()
+    if (!picked) return
+    const next = { ...(settings as any), dropfxLibrary: picked }
+    await window.edithub.setSettings(next)
+    setSettings(next)
+    addToast({ type: 'success', message: 'DropFX library saved. Restart EditHub to re-index it.' })
+  }
 
   // Fetch assets
   const loadAssets = useCallback(async () => {
@@ -395,14 +405,69 @@ export default function DropFX() {
       display: 'flex',
       overflow: 'hidden',
     }}>
-      {/* Left panel: folder tree */}
+      {/* Sidebar: library, search, filters */}
       <div style={{
-        width: 200,
+        width: 315,
+        minWidth: 280,
         borderRight: '1px solid var(--sep)',
+        background: 'rgba(255,255,255,0.025)',
         overflowY: 'auto',
-        padding: '10px 8px',
+        padding: '12px 12px 90px',
         flexShrink: 0,
       }}>
+        <div style={{ height: 16 }} />
+        <div style={{ position: 'relative', marginBottom: 12 }}>
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="var(--dim)" strokeWidth="1.5" strokeLinecap="round"
+            style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
+            <circle cx="6" cy="6" r="4.5" />
+            <path d="M10 10l2.5 2.5" />
+          </svg>
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search sounds"
+            style={{ paddingLeft: 36, height: 38, borderRadius: 999 }}
+          />
+        </div>
+        <div style={{
+          border: '1px solid var(--sep)',
+          borderRadius: 13,
+          background: 'rgba(255,255,255,0.045)',
+          padding: 12,
+          marginBottom: 14,
+        }}>
+          <div style={{ color: 'var(--dim)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
+            Active Project
+          </div>
+          {activeProject ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--good)', display: 'inline-block', animation: 'pulse-dot 2s infinite' }} />
+              <strong style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{activeProject.name}</strong>
+            </div>
+          ) : (
+            <div style={{ color: 'var(--warn)', fontSize: 13, lineHeight: 1.4 }}>
+              Open a project in EditHub to copy sounds into SFX.
+            </div>
+          )}
+        </div>
+
+        <div style={{
+          border: '1px solid var(--sep)',
+          borderRadius: 13,
+          background: 'rgba(255,255,255,0.045)',
+          padding: 12,
+          marginBottom: 14,
+        }}>
+          <div style={{ color: 'var(--dim)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
+            DropFX Settings
+          </div>
+          <div style={{ color: 'var(--dim)', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 8 }}>
+            {settings?.dropfxLibrary || 'Library not selected'}
+          </div>
+          <button className="btn btn-secondary" onClick={chooseLibrary} style={{ fontSize: 12, padding: '6px 10px' }}>
+            Choose Sound Library
+          </button>
+        </div>
         <p style={{
           fontSize: 11,
           color: 'var(--dim)',
@@ -448,6 +513,41 @@ export default function DropFX() {
             onSelect={setSelectedFolder}
           />
         ))}
+
+        {allTags.length > 0 && (
+          <>
+            <p style={{
+              fontSize: 11,
+              color: 'var(--dim)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.06em',
+              padding: '16px 8px 6px',
+            }}>
+              Tags
+            </p>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', padding: '0 4px' }}>
+              {allTags.map((tag) => {
+                const active = selectedTags.includes(tag)
+                return (
+                  <button
+                    key={tag}
+                    onClick={() => toggleTag(tag)}
+                    style={{
+                      fontSize: 11,
+                      padding: '4px 9px',
+                      borderRadius: 999,
+                      border: `1px solid ${active ? 'var(--accent)' : 'var(--sep)'}`,
+                      background: active ? 'rgba(47,140,255,0.15)' : 'rgba(255,255,255,0.035)',
+                      color: active ? 'var(--accent)' : 'var(--dim)',
+                    }}
+                  >
+                    {tag}
+                  </button>
+                )
+              })}
+            </div>
+          </>
+        )}
       </div>
 
       {/* Right panel */}
@@ -457,6 +557,38 @@ export default function DropFX() {
         flexDirection: 'column',
         overflow: 'hidden',
       }}>
+        <div style={{
+          padding: '16px 18px',
+          borderBottom: '1px solid var(--sep)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 16,
+          flexShrink: 0,
+          WebkitAppRegion: 'drag' as any,
+        }}>
+          <div style={{ WebkitAppRegion: 'no-drag' as any }}>
+            <h2 style={{ fontSize: 20, fontWeight: 750 }}>DropFX Library</h2>
+            <p style={{ color: 'var(--dim)', fontSize: 13, marginTop: 2 }}>
+              {selectedFolder || 'All sounds'} · {assets.length} sound{assets.length === 1 ? '' : 's'}
+            </p>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, WebkitAppRegion: 'no-drag' as any }}>
+            <div style={{
+              padding: '8px 11px',
+              border: '1px solid var(--sep)',
+              borderRadius: 999,
+              color: activeProject ? 'var(--good)' : 'var(--warn)',
+              background: 'rgba(255,255,255,0.04)',
+              fontSize: 12,
+              fontWeight: 650,
+            }}>
+              {activeProject ? 'Linked to EditHub' : 'No active project'}
+            </div>
+            <WindowControls />
+          </div>
+        </div>
+
         {/* Active project indicator */}
         {activeProject ? (
           <div style={{
@@ -480,9 +612,9 @@ export default function DropFX() {
 
         {/* Search + tags bar */}
         <div style={{
+          display: 'none',
           padding: '10px 12px',
           borderBottom: '1px solid var(--sep)',
-          display: 'flex',
           flexDirection: 'column',
           gap: 8,
           flexShrink: 0,
@@ -543,7 +675,7 @@ export default function DropFX() {
         <div style={{
           flex: 1,
           overflow: 'auto',
-          padding: 12,
+          padding: 18,
         }}>
           {loading ? (
             <div style={{
@@ -583,8 +715,8 @@ export default function DropFX() {
           ) : (
             <div style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
-              gap: 10,
+              gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))',
+              gap: 12,
             }}>
               {assets.map((asset) => (
                 <AssetCard key={asset.id} asset={asset} />

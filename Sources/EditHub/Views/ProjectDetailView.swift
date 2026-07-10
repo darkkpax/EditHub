@@ -23,6 +23,8 @@ struct ProjectDetailView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
+                .frame(height: 116)
+                .background { FrostedHeaderStrip() }
             Divider()
             statsBar
             Divider()
@@ -479,7 +481,7 @@ struct ProjectDetailView: View {
             archiveChecksum: checksum,
             archivedAt: fmt.string(from: Date())
         )
-        _ = try? await NetworkClient.shared.updateProject(id: project.id.uuidString, patch: patch)
+        _ = try? await NetworkClient.shared.updateProject(id: project.id, patch: patch)
     }
 }
 

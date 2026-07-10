@@ -6,7 +6,7 @@ import Foundation
 /// определяется наличием файла-манифеста `<ИМЯ>.edithub` (см. [[ProjectArchiver]]).
 struct Project: Identifiable, Hashable {
     /// Стабильная идентичность из метаданных, не зависит от пути на диске.
-    let id: UUID
+    let id: String
     let name: String
     /// Локальный путь на диске. `nil` для `remoteOnly` проектов.
     let url: URL?
@@ -26,7 +26,7 @@ struct Project: Identifiable, Hashable {
     var localURL: URL { url! }
 
     // Локальный проект (с диска).
-    init(id: UUID, url: URL, year: String, month: String, createdAt: Date, isArchived: Bool) {
+    init(id: String, url: URL, year: String, month: String, createdAt: Date, isArchived: Bool) {
         self.id = id
         self.name = url.lastPathComponent
         self.url = url
@@ -39,7 +39,7 @@ struct Project: Identifiable, Hashable {
 
     // Удалённый проект (только сервер, нет на диске).
     init(serverProject s: ServerProject) {
-        self.id   = UUID(uuidString: s.id) ?? UUID()
+        self.id   = s.id
         self.name = s.name
         self.url  = nil
         self.year = s.year

@@ -299,7 +299,7 @@ struct CreateAndDownloadPopover: View {
         Task {
             let fmt = ISO8601DateFormatter()
             let payload = ProjectPayload(
-                id: project.id.uuidString,
+                id: project.id,
                 name: project.name,
                 year: project.year,
                 month: project.month,

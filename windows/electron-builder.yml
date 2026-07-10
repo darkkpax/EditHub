@@ -37,4 +37,7 @@ extraResources:
     filter:
       - "**/*"
 
-publish: null
+publish:
+  provider: github
+  owner: darkkpax
+  repo: EditHub

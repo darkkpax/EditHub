@@ -9,7 +9,7 @@ struct ProjectManifest: Codable {
     /// Стабильная идентичность проекта (см. [[ProjectMetadata]]). Позволяет
     /// законсервированному проекту переподключиться к серверной записи.
     /// Опционально для совместимости со старыми манифестами без id.
-    var projectId: UUID?
+    var projectId: String?
     var projectName: String
     var year: String
     var month: String

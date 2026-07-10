@@ -76,11 +76,11 @@ export class FileWatcher {
         this.activeProjectRoot,
         this.activeProjectId,
         (from, to) => {
-          this.mainWindow?.webContents.send('file:sorted', {
+          BrowserWindow.getAllWindows().forEach((window) => window.webContents.send('file:sorted', {
             projectId: this.activeProjectId,
             from,
             to,
-          })
+          }))
         }
       )
     })
@@ -131,10 +131,10 @@ export class FileWatcher {
               if (!fs.existsSync(filePath)) return
               const stat2 = fs.statSync(filePath)
               if (stat1.size === stat2.size && stat2.size > 0) {
-                this.mainWindow?.webContents.send('downloads:matched', {
+                BrowserWindow.getAllWindows().forEach((window) => window.webContents.send('downloads:matched', {
                   fileName,
                   filePath,
-                })
+                }))
               }
             } catch {}
           }, 1000)

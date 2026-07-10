@@ -98,7 +98,7 @@ final class ProjectStore {
                     let meta = p.metadata
                     let fmt = ISO8601DateFormatter()
                     return LocalScanProject(
-                        id: p.id.uuidString,
+                        id: p.id,
                         name: p.name,
                         year: p.year,
                         month: p.month,
@@ -121,7 +121,7 @@ final class ProjectStore {
 
     /// Добавляет в список проекты с сервера, которых нет локально.
     private func mergeRemoteProjects(_ serverProjects: [ServerProject]) {
-        let localIDs = Set(projects.compactMap { $0.isRemoteOnly ? nil : $0.id.uuidString })
+        let localIDs = Set(projects.compactMap { $0.isRemoteOnly ? nil : $0.id })
         let remoteOnly = serverProjects
             .filter { !localIDs.contains($0.id) && $0.archivedAt != nil }
             .map { Project(serverProject: $0) }

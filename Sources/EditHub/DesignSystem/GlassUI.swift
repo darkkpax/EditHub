@@ -132,6 +132,27 @@ struct DefaultLiquidGlassBackground: View {
     }
 }
 
+/// Shared top chrome for the project browser. Native material supplies the
+/// live backdrop blur; the faint diagonal frost matches Flutter's glass strip.
+struct FrostedHeaderStrip: View {
+    var body: some View {
+        Rectangle()
+            .fill(.ultraThinMaterial)
+            .overlay {
+                LinearGradient(
+                    colors: [.white.opacity(0.08), .white.opacity(0.025), .clear],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            }
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(.white.opacity(0.10))
+                    .frame(height: 1)
+            }
+    }
+}
+
 // MARK: - Liquid Glass card surface
 
 extension View {

@@ -47,6 +47,26 @@ final class AuthStore {
         try? KeychainCredentialStore.delete(account: Self.keychainAccount)
     }
 
+    /// Called after the user grants sandbox access to their iCloud Drive folder.
+    func importSharedSession(from selectedICloudURL: URL) {
+        guard token == nil else { return }
+        let candidates = selectedICloudURL.lastPathComponent == "EditHub"
+            ? [selectedICloudURL.appendingPathComponent("auth.json")]
+            : [selectedICloudURL.appendingPathComponent("EditHub/auth.json")]
+        guard let shared = Self.loadSharedSession(from: candidates),
+              let payload = jwtPayload(shared.token),
+              let exp = payload["exp"] as? TimeInterval,
+              Date().timeIntervalSince1970 < exp else { return }
+        token = shared.token
+        userId = shared.userId ?? payload["userId"] as? String
+        workspaceId = shared.workspaceId ?? payload["workspaceId"] as? String
+        userEmail = shared.email
+        try? KeychainCredentialStore.writeString(shared.token, account: Self.keychainAccount)
+        if let serverURL = shared.serverURL, !serverURL.isEmpty {
+            UserDefaults.standard.set(serverURL, forKey: "edithub.serverURL")
+        }
+    }
+
     // MARK: - JWT payload decode (без проверки подписи — доверяем серверу)
 
     private func jwtPayload(_ jwt: String) -> [String: Any]? {
@@ -59,6 +79,39 @@ final class AuthStore {
         if rem > 0 { base64 += String(repeating: "=", count: 4 - rem) }
         guard let data = Data(base64Encoded: base64) else { return nil }
         return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    }
+
+    private static func loadSharedSession(from candidates: [URL]) -> SharedAuthSession? {
+        for url in candidates {
+            guard let data = try? Data(contentsOf: url),
+                  let session = try? JSONDecoder().decode(SharedAuthSession.self, from: data),
+                  !session.token.isEmpty else { continue }
+            return session
+        }
+        return nil
+    }
+}
+
+private struct SharedAuthSession: Decodable {
+    let token: String
+    let userId: String?
+    let workspaceId: String?
+    let email: String?
+    let serverURL: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case token, userId, workspaceId, email, userEmail, serverURL, serverUrl
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        token = try container.decodeIfPresent(String.self, forKey: .token) ?? ""
+        userId = try container.decodeIfPresent(String.self, forKey: .userId)
+        workspaceId = try container.decodeIfPresent(String.self, forKey: .workspaceId)
+        email = try container.decodeIfPresent(String.self, forKey: .userEmail)
+            ?? container.decodeIfPresent(String.self, forKey: .email)
+        serverURL = try container.decodeIfPresent(String.self, forKey: .serverURL)
+            ?? container.decodeIfPresent(String.self, forKey: .serverUrl)
     }
 }
 

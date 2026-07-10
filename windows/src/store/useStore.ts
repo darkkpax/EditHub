@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-export type TabId = 'projects' | 'dropfx' | 'settings'
+export type TabId = 'projects' | 'settings'
 
 export type ProjectStatus =
   | 'active'
@@ -13,6 +13,8 @@ export type ProjectStatus =
 export interface ProjectInfo {
   id: string
   name: string
+  year?: string
+  month?: string
   createdAt: string
   lastOpenedAt: string
   footageUrls: string[]
@@ -38,6 +40,10 @@ export interface ToastMessage {
   message: string
   filePath?: string
   fileName?: string
+}
+
+export interface DebugLogger {
+  debugLog?: (level: 'INFO' | 'WARN' | 'ERROR', message: string, details?: unknown) => void
 }
 
 export interface DownloadProgressInfo {
@@ -79,6 +85,10 @@ interface AppState {
   // iCloud
   icloudSyncing: boolean
   setICloudSyncing: (syncing: boolean) => void
+
+  // Archive extraction progress (background)
+  archivesProgress: { current: number; total: number; name?: string } | null
+  setArchivesProgress: (p: { current: number; total: number; name?: string } | null) => void
 
   // DropFX
   dropfxAvailable: boolean
@@ -149,6 +159,9 @@ export const useStore = create<AppState>((set, get) => ({
 
   icloudSyncing: false,
   setICloudSyncing: (syncing) => set({ icloudSyncing: syncing }),
+
+  archivesProgress: null,
+  setArchivesProgress: (p) => set({ archivesProgress: p }),
 
   dropfxAvailable: false,
   setDropfxAvailable: (available) => set({ dropfxAvailable: available }),

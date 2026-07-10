@@ -1,59 +1,19 @@
 import React from 'react'
 
-export default function TitleBar() {
+interface WindowControlsProps {
+  closeTitle?: string
+}
+
+export function WindowControls({ closeTitle = 'Close to tray' }: WindowControlsProps) {
   const minimize = () => window.edithub.minimizeWindow()
   const close = () => window.edithub.closeWindow()
 
   return (
     <div style={{
-      height: 40,
-      background: 'var(--bg)',
-      borderBottom: '1px solid var(--sep)',
       display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      paddingLeft: 16,
-      paddingRight: 8,
-      WebkitAppRegion: 'drag' as any,
-      flexShrink: 0,
+      gap: 4,
+      WebkitAppRegion: 'no-drag' as any,
     }}>
-      {/* App title */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 8,
-      }}>
-        <div style={{
-          width: 20,
-          height: 20,
-          borderRadius: '50%',
-          background: 'var(--brand-grad)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontSize: 11,
-          fontWeight: 700,
-          color: '#fff',
-          flexShrink: 0,
-        }}>
-          E
-        </div>
-        <span style={{
-          fontSize: 13,
-          fontWeight: 600,
-          color: 'var(--txt)',
-          letterSpacing: '-0.01em',
-        }}>
-          EditHub
-        </span>
-      </div>
-
-      {/* Window controls */}
-      <div style={{
-        display: 'flex',
-        gap: 4,
-        WebkitAppRegion: 'no-drag' as any,
-      }}>
         <button
           onClick={minimize}
           title="Minimize"
@@ -83,7 +43,7 @@ export default function TitleBar() {
 
         <button
           onClick={close}
-          title="Close to tray"
+          title={closeTitle}
           style={{
             width: 28,
             height: 28,
@@ -107,7 +67,17 @@ export default function TitleBar() {
             <path d="M1 1l8 8M9 1L1 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none" />
           </svg>
         </button>
-      </div>
     </div>
+  )
+}
+
+export default function TitleBar() {
+  return (
+    <div style={{
+      height: 12,
+      background: 'var(--bg)',
+      WebkitAppRegion: 'drag' as any,
+      flexShrink: 0,
+    }} />
   )
 }

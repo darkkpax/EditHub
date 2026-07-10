@@ -8,7 +8,7 @@ struct ProjectMetadata: Codable, Equatable {
     var version: Int = 2
     /// Стабильная идентичность проекта, не зависящая от пути на диске.
     /// Переживает переименование, перемещение и восстановление на другой машине.
-    var projectId: UUID = UUID()
+    var projectId: String = UUID().uuidString
     var footageLinks: [String] = []
     var updatedAt: Date = Date()
 
@@ -37,11 +37,11 @@ struct ProjectMetadata: Codable, Equatable {
         version = try c.decodeIfPresent(Int.self, forKey: .version) ?? 1
         footageLinks = try c.decodeIfPresent([String].self, forKey: .footageLinks) ?? []
         updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt) ?? Date()
-        if let id = try c.decodeIfPresent(UUID.self, forKey: .projectId) {
+        if let id = try c.decodeIfPresent(String.self, forKey: .projectId), !id.isEmpty {
             projectId = id
             hasPersistedProjectId = true
         } else {
-            projectId = UUID()
+            projectId = UUID().uuidString
             hasPersistedProjectId = false
         }
     }
@@ -72,8 +72,22 @@ enum ProjectMetadataStore {
     /// ему стабильный id и сразу записать обратно, иначе id «плавал» бы при
     /// каждом запуске.
     static func load(projectURL: URL) -> ProjectMetadata {
+        let flutter = loadFlutterManifest(projectURL: projectURL)
         guard var metadata = try? ProjectMetadata.load(from: url(for: projectURL)) else {
-            return ProjectMetadata()
+            var imported = ProjectMetadata()
+            if let manifest = flutter {
+                if !manifest.id.isEmpty { imported.projectId = manifest.id }
+                imported.footageLinks = manifest.footageUrls
+                try? imported.write(to: url(for: projectURL))
+            }
+            return imported
+        }
+        if let manifest = flutter {
+            if !manifest.id.isEmpty { metadata.projectId = manifest.id }
+            metadata.footageLinks = (manifest.footageUrls + metadata.footageLinks).reduce(into: [String]()) {
+                if !$0.contains($1) { $0.append($1) }
+            }
+            try? metadata.write(to: url(for: projectURL))
         }
         if !metadata.hasPersistedProjectId || metadata.version < 2 {
             metadata.version = 2
@@ -83,6 +97,12 @@ enum ProjectMetadataStore {
             try? metadata.write(to: url(for: projectURL))
         }
         return metadata
+    }
+
+    private static func loadFlutterManifest(projectURL: URL) -> FlutterProjectManifest? {
+        let url = projectURL.appendingPathComponent(".edithub.json")
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(FlutterProjectManifest.self, from: data)
     }
 
     static func save(_ metadata: ProjectMetadata, projectURL: URL) throws {
@@ -100,5 +120,18 @@ enum ProjectMetadataStore {
         metadata.footageLinks.removeAll { $0 == trimmed }
         metadata.footageLinks.insert(trimmed, at: 0)
         try save(metadata, projectURL: projectURL)
+    }
+}
+
+private struct FlutterProjectManifest: Decodable {
+    let id: String
+    let footageUrls: [String]
+
+    private enum CodingKeys: String, CodingKey { case id, footageUrls }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(String.self, forKey: .id) ?? ""
+        footageUrls = try container.decodeIfPresent([String].self, forKey: .footageUrls) ?? []
     }
 }

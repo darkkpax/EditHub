@@ -13,7 +13,7 @@ import shutil
 import struct
 import wave
 import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, unquote
 from pathlib import Path
 
@@ -191,6 +191,7 @@ class DropFXHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(body)
 
@@ -335,7 +336,7 @@ def main():
     print(f"Library root: {LIBRARY_ROOT}")
     threading.Thread(target=lambda: scan_library(LIBRARY_ROOT), daemon=True).start()
 
-    server = HTTPServer(("localhost", PORT), DropFXHandler)
+    server = ThreadingHTTPServer(("localhost", PORT), DropFXHandler)
     print(f"Listening on http://localhost:{PORT}")
     try:
         server.serve_forever()

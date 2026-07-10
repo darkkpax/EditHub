@@ -1,4 +1,5 @@
 import { IpcMain, dialog, shell } from 'electron'
+import * as fs from 'fs'
 
 export function setupShellIPC(ipcMain: IpcMain): void {
   // PICK FOLDER
@@ -14,7 +15,15 @@ export function setupShellIPC(ipcMain: IpcMain): void {
   ipcMain.handle(
     'shell:showInExplorer',
     async (_e, { path }: { path: string }) => {
-      shell.showItemInFolder(path)
+      if (!path || !fs.existsSync(path)) {
+        throw new Error('Path does not exist')
+      }
+      const stat = fs.statSync(path)
+      if (stat.isDirectory()) {
+        await shell.openPath(path)
+      } else {
+        shell.showItemInFolder(path)
+      }
     }
   )
 }

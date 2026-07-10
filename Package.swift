@@ -15,6 +15,7 @@ let package = Package(
             linkerSettings: [
                 .linkedFramework("AppKit")
             ]
-        )
+        ),
+        .testTarget(name: "EditHubTests", dependencies: ["EditHub"])
     ]
 )

@@ -46,13 +46,13 @@ struct ProjectListView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Space for traffic lights when titlebar is transparent/hidden
-            Color.clear.frame(height: 28)
-
-            searchBar
-                .padding(.horizontal, 16)
-                .padding(.top, 6)
-                .padding(.bottom, 10)
+            ZStack(alignment: .bottom) {
+                FrostedHeaderStrip()
+                searchBar
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 10)
+            }
+            .frame(height: 116)
 
             if isSelecting && !selectedIDs.isEmpty {
                 selectionToolbar

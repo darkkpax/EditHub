@@ -2,6 +2,7 @@ import { ChildProcess, spawn } from 'child_process'
 import * as path from 'path'
 import * as fs from 'fs'
 import * as http from 'http'
+import { loadSettings } from './services/settings-store'
 
 const BACKEND_PORT = 8765
 const STARTUP_TIMEOUT_MS = 10000
@@ -17,6 +18,7 @@ export class DropFXBackend {
     }
 
     return new Promise((resolve, reject) => {
+      const settings = loadSettings()
       const args = this._useExe ? [] : [backendPath]
       const cmd = this._useExe
         ? backendPath
@@ -27,6 +29,7 @@ export class DropFXBackend {
         env: {
           ...process.env,
           DROPFX_PORT: String(BACKEND_PORT),
+          DROPFX_LIBRARY: settings.dropfxLibrary,
         },
       })
 
@@ -101,8 +104,11 @@ export class DropFXBackend {
         `http://localhost:${BACKEND_PORT}/health`,
         { timeout: 2000 },
         (res) => {
-          if (res.statusCode === 200) resolve()
-          else reject(new Error(`Health check failed: ${res.statusCode}`))
+          res.resume()
+          res.on('end', () => {
+            if (res.statusCode === 200) resolve()
+            else reject(new Error(`Health check failed: ${res.statusCode}`))
+          })
         }
       )
       req.on('error', reject)

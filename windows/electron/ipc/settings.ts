@@ -22,11 +22,13 @@ export function setupSettingsIPC(
   )
 
   // Window controls
-  ipcMain.handle('window:minimize', () => {
-    mainWindow?.minimize()
+  ipcMain.handle('window:minimize', (event) => {
+    const window = BrowserWindow.fromWebContents(event.sender) || mainWindow
+    window?.minimize()
   })
 
-  ipcMain.handle('window:close', () => {
-    mainWindow?.hide()
+  ipcMain.handle('window:close', (event) => {
+    const window = BrowserWindow.fromWebContents(event.sender) || mainWindow
+    window?.hide()
   })
 }

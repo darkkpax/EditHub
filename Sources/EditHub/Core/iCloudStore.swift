@@ -36,6 +36,12 @@ final class iCloudStore {
         pathDefaultsKey: "selectedICloudArchivePath"
     )
 
+    private init() {
+        if let url = bookmarkStore.selectedURL {
+            AuthStore.shared.importSharedSession(from: url)
+        }
+    }
+
     /// Выбранный пользователем корень архива в iCloud Drive.
     var rootURL: URL? { bookmarkStore.selectedURL }
 
@@ -46,6 +52,7 @@ final class iCloudStore {
     /// Запомнить выбранную папку как корень архива.
     func setRoot(_ url: URL) throws {
         try bookmarkStore.setSelectedURL(url)
+        AuthStore.shared.importSharedSession(from: url)
     }
 
     /// Относительный путь архива (хранится в манифесте, не зависит от машины):

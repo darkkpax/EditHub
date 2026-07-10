@@ -9,9 +9,12 @@ declare module 'react' {
 declare global {
   interface Window {
     edithub: {
+      debugLog?: (level: 'INFO' | 'WARN' | 'ERROR', message: string, details?: unknown) => void
       listProjects: () => Promise<ProjectInfo[]>
+      listProjectFolders: (projectPath: string) => Promise<FolderEntry[]>
+      getProjectThumbnail: (projectPath: string) => Promise<{ videoPath: string; dataUrl: string | null } | null>
       createProject: (name: string, urls: string[]) => Promise<ProjectInfo>
-      openProject: (id: string) => Promise<void>
+      openProject: (id: string) => Promise<DaVinciOpenResult>
       archiveProject: (id: string) => Promise<void>
       restoreProject: (id: string) => Promise<void>
       deleteProject: (id: string) => Promise<void>
@@ -29,19 +32,33 @@ declare global {
       onDownloadsMatched: (cb: (data: { fileName: string; filePath: string }) => void) => () => void
       onICloudStatus: (cb: (data: { syncing: boolean }) => void) => () => void
       onActiveChanged: (cb: (data: { projectId: string }) => void) => () => void
+      extractArchives: () => Promise<{ started: boolean }>
+      onArchivesProgress: (cb: (data: { current: number; total: number; name: string }) => void) => () => void
+      onArchivesDone: (cb: (data: { extracted: number; total: number }) => void) => () => void
     }
   }
 
   interface ProjectInfo {
     id: string
     name: string
+    year?: string
+    month?: string
     path: string
     createdAt: string
     lastOpenedAt: string
-    status: 'active' | 'downloading' | 'uploading' | 'icloud' | 'archive' | 'ready'
-    sizeBytes: number
+    status: 'active' | 'downloading' | 'uploading' | 'incloud' | 'archive' | 'ready'
+    folderPath?: string
+    sizeBytes?: number
     footageUrls: string[]
     downloadProgress: Record<string, number>
+  }
+
+  interface FolderEntry {
+    name: string
+    path: string
+    type: 'file' | 'folder'
+    sizeBytes?: number
+    children?: FolderEntry[]
   }
 
   interface AppSettings {
@@ -59,6 +76,20 @@ declare global {
     fileUrl: string
     percent: number
     fileName: string
+  }
+
+  interface DaVinciOpenResult {
+    launched: boolean
+    projectReady: boolean
+    message?: string
+    drpFilePath?: string
+    project: ProjectInfo
+  }
+
+  interface ArchiveProgressInfo {
+    current: number
+    total: number
+    name?: string
   }
 
 }

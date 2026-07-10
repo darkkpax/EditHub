@@ -11,8 +11,20 @@ export interface ICloudConfig {
   lastSync?: string
 }
 
+export interface ICloudAuthConfig {
+  serverURL: string
+  token?: string
+  userEmail?: string
+  workspaceId?: string
+  lastSync?: string
+}
+
 function getICloudConfigPath(icloudPath: string): string {
   return path.join(icloudPath, 'EditHub', 'config.json')
+}
+
+function getICloudAuthPath(icloudPath: string): string {
+  return path.join(icloudPath, 'EditHub', 'auth.json')
 }
 
 function tryGetICloudPathFromRegistry(): string | null {
@@ -70,7 +82,9 @@ export class ICloudSync {
   private ensureICloudFolders(): void {
     const folders = [
       path.join(this.icloudPath, 'EditHub'),
+      path.join(this.icloudPath, 'EditHub', 'Videos'),
       path.join(this.icloudPath, 'EditHub', 'projects'),
+      path.join(this.icloudPath, 'EditHub', 'Archive'),
       path.join(this.icloudPath, 'EditHub', 'archive'),
     ]
     for (const f of folders) {
@@ -102,6 +116,7 @@ export class ICloudSync {
       const current = this.readConfig()
       const updated = { ...current, ...config, lastSync: new Date().toISOString() }
       fs.writeFileSync(configPath, JSON.stringify(updated, null, 2), 'utf-8')
+      this.ensureAuthFile()
       this.config = updated
     } catch (err) {
       console.warn('Failed to write iCloud config:', err)
@@ -112,8 +127,14 @@ export class ICloudSync {
     this.writeConfig({ activeProjectId: projectId, activeProjectName: projectName })
   }
 
+  /**
+   * The single source of truth for where archived ("сгруженные") projects
+   * live in iCloud. Both the Mac app and the Windows archiver use
+   * `iCloudDrive/EditHub/Videos/{year}/{month}/`, so the sync monitor, restore and
+   * upload-status logic must all point here too.
+   */
   getArchiveFolder(): string {
-    return path.join(this.icloudPath, 'EditHub', 'archive')
+    return path.join(this.icloudPath, 'EditHub', 'Videos')
   }
 
   getProjectsFolder(): string {
@@ -125,8 +146,8 @@ export class ICloudSync {
     // We also check for very recently modified files (being uploaded) by looking at
     // mtime compared to now — files modified in the last 30s are likely being synced.
     try {
-      const editHubFolder = path.join(this.icloudPath, 'EditHub')
-      if (!fs.existsSync(editHubFolder)) return false
+      const archiveRoot = this.getArchiveFolder()
+      if (!fs.existsSync(archiveRoot)) return false
       const now = Date.now()
 
       const checkFolder = (dir: string, depth = 0): boolean => {
@@ -148,36 +169,47 @@ export class ICloudSync {
         return false
       }
 
-      return checkFolder(editHubFolder)
+      return checkFolder(archiveRoot)
     } catch {
       return false
     }
   }
 
   getUploadingProjects(): string[] {
-    // Returns folder names of projects currently being uploaded to iCloud
+    // Returns folder names of projects currently being uploaded to iCloud.
+    // Archived projects live under EditHub/Videos/{year}/{month}/{project}, so we
+    // look at the leaf project folders rather than the archive root.
     const uploading: string[] = []
     try {
-      const archiveFolder = path.join(this.icloudPath, 'EditHub', 'archive')
+      const archiveFolder = this.getArchiveFolder()
       if (!fs.existsSync(archiveFolder)) return []
       const now = Date.now()
-      const entries = fs.readdirSync(archiveFolder, { withFileTypes: true })
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue
-        const folderPath = path.join(archiveFolder, entry.name)
+      const recent = (p: string): boolean => {
+        try { return now - fs.statSync(p).mtimeMs < 5 * 60_000 } catch { return false }
+      }
+      const dirs = (p: string): string[] => {
         try {
-          const stat = fs.statSync(folderPath)
-          // Folder modified in last 5 min = likely being synced
-          if (now - stat.mtimeMs < 5 * 60_000) {
-            uploading.push(entry.name)
+          return fs.readdirSync(p, { withFileTypes: true })
+            .filter((e) => e.isDirectory() && !e.name.toLowerCase().startsWith('__extracting_'))
+            .map((e) => e.name)
+        } catch { return [] }
+      }
+      for (const year of dirs(archiveFolder)) {
+        const yearPath = path.join(archiveFolder, year)
+        for (const month of dirs(yearPath)) {
+          const monthPath = path.join(yearPath, month)
+          for (const project of dirs(monthPath)) {
+            if (recent(path.join(monthPath, project))) uploading.push(project)
           }
-        } catch {}
+        }
       }
     } catch {}
     return uploading
   }
 
   start(): void {
+    this.ensureICloudFolders()
+    this.ensureAuthFile()
     // Initial config read
     try {
       this.config = this.readConfig()
@@ -188,6 +220,21 @@ export class ICloudSync {
       const syncing = this.isSyncing()
       this.mainWindow?.webContents.send('icloud:status', { syncing })
     }, 10000)
+  }
+
+  private ensureAuthFile(): void {
+    try {
+      this.ensureICloudFolders()
+      const authPath = getICloudAuthPath(this.icloudPath)
+      if (fs.existsSync(authPath)) return
+      const auth: ICloudAuthConfig = {
+        serverURL: 'http://127.0.0.1:3000',
+        lastSync: new Date().toISOString(),
+      }
+      fs.writeFileSync(authPath, JSON.stringify(auth, null, 2), 'utf-8')
+    } catch (err) {
+      console.warn('Failed to ensure iCloud auth file:', err)
+    }
   }
 
   updateSettings(settings: Settings): void {

@@ -211,7 +211,10 @@ struct RootSplitView: View {
             .url(forUbiquityContainerIdentifier: nil)?
             .deletingLastPathComponent()
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        try? iCloud.setRoot(url)
+        do {
+            try iCloud.setRoot(url)
+            if AuthStore.shared.isLoggedIn { store.syncWithServer() }
+        } catch {}
     }
 }
 
