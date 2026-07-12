@@ -158,12 +158,23 @@ class ProjectRepository {
   }) async {
     final folder = initial.folderPath!;
     var paused = false;
+    // ponytail: throttle disk-write + onChanged to ~2/s. onProgress fires per
+    // network chunk (×maxConcurrent files); onChanged can invalidate the whole
+    // projects stream (disk rescan + isolate spawn), which froze the app solid.
+    // Always emit the final 100% tick so no file's completion is dropped.
+    var lastEmit = DateTime.fromMillisecondsSinceEpoch(0);
     try {
       await downloader.downloadAll(
         projectId: initial.id,
         urls: urls ?? initial.footageUrls,
         destinationFolder: p.join(folder, 'FOOTAGE'),
         onProgress: (progress) {
+          final now = DateTime.now();
+          if (progress.percent < 100 &&
+              now.difference(lastEmit) < const Duration(milliseconds: 500)) {
+            return;
+          }
+          lastEmit = now;
           final current = store.readProjectInfo(folder) ?? initial;
           final updated = current.copyWith(
             folderPath: folder,
