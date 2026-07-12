@@ -33,6 +33,7 @@ class ArchiverService {
     String projectFolder,
     String archiveFolder, {
     String? sourceRoot,
+    bool keepFootage = false,
   }) async {
     final info = store.readProjectInfo(projectFolder);
     final folderName = p.basename(projectFolder);
@@ -52,10 +53,15 @@ class ArchiverService {
 
     final parent = p.dirname(projectFolder);
     _moveDirectory(projectFolder, dest);
-    for (final entry in Directory(dest).listSync(followLinks: false)) {
-      if (entry is Directory &&
-          p.basename(entry.path).toUpperCase() == 'FOOTAGE') {
-        entry.deleteSync(recursive: true);
+    // Default offload strips FOOTAGE (it re-downloads from links on restore).
+    // keepFootage leaves it in the iCloud copy — used when the media can't be
+    // re-fetched later (e.g. bad internet), so the whole project travels intact.
+    if (!keepFootage) {
+      for (final entry in Directory(dest).listSync(followLinks: false)) {
+        if (entry is Directory &&
+            p.basename(entry.path).toUpperCase() == 'FOOTAGE') {
+          entry.deleteSync(recursive: true);
+        }
       }
     }
     _setCloudPinState(dest, onlineOnly: true);

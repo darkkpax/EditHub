@@ -385,6 +385,36 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen>
     }
   }
 
+  /// Offload keeping FOOTAGE, so the whole project (media included) goes to
+  /// iCloud — for when links can't be re-fetched later (bad internet). Exports
+  /// the DaVinci project first if Resolve is running, so the .drp travels too.
+  Future<void> _archiveWithFootage(ProjectInfo project) async {
+    final folder = project.folderPath;
+    if (folder == null) return;
+    try {
+      if (project.editor == 'davinci' &&
+          ref.read(davinciServiceProvider).isResolveRunning()) {
+        _message('Exporting DaVinci project…');
+        await ref.read(davinciServiceProvider).export(folder);
+      }
+      if (mounted) _message('Offloading ${project.name} with footage…');
+      await ref
+          .read(archiverServiceProvider)
+          .archiveProject(
+            folder,
+            ref.read(icloudServiceProvider).archiveFolder,
+            sourceRoot: ref.read(settingsProvider).projectsFolder,
+            keepFootage: true,
+          );
+      ref.invalidate(projectsProvider);
+      if (mounted) {
+        _message('${project.name} offloaded to iCloud with footage.');
+      }
+    } catch (error) {
+      if (mounted) _message(error.toString(), error: true);
+    }
+  }
+
   Future<void> _restore(ProjectInfo project) async {
     final folder = project.folderPath;
     if (folder == null) return;
@@ -479,6 +509,11 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen>
         const PopupMenuItem(value: 'reveal', child: Text('Show in Explorer')),
         if (!archived)
           const PopupMenuItem(value: 'offload', child: Text('Offload to iCloud')),
+        if (!archived)
+          const PopupMenuItem(
+            value: 'offload_footage',
+            child: Text('Offload with footage'),
+          ),
         const PopupMenuItem(
           value: 'delete',
           child: Text('Delete', style: TextStyle(color: AppColors.bad)),
@@ -497,6 +532,8 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen>
         _reveal(project);
       case 'offload':
         _archive(project);
+      case 'offload_footage':
+        _archiveWithFootage(project);
       case 'delete':
         _delete(project);
     }
