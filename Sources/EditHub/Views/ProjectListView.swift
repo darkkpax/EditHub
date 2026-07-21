@@ -54,6 +54,13 @@ struct ProjectListView: View {
         store.projects.filter { selectedIDs.contains($0.id) }
     }
 
+    /// The grouped order flattened back into one sequence — newest month
+    /// first, projects sorted inside it — so the list keeps `store.grouped`'s
+    /// ordering without rendering the group headers.
+    private var flatProjects: [Project] {
+        groups.flatMap(\.projects)
+    }
+
     var body: some View {
         // The header floats *over* the list, matching the detail pane: rows
         // scroll underneath it and blur through the glass rather than stopping
@@ -121,19 +128,23 @@ struct ProjectListView: View {
                 Spacer(minLength: 0)
             }
             .frame(height: Theme.controlHeight)
-            .padding(.horizontal, Theme.headerHorizontalPadding)
 
             searchBar
-                .padding(.horizontal, Theme.headerHorizontalPadding)
         }
-        // Same padding + frame as the detail pane's header, so the two columns'
-        // chrome sits on one baseline.
+        // This chain must stay identical to ProjectDetailView's header, in the
+        // same order. The `.frame(height: headerContentHeight)` is the part
+        // that matters: without it the sidebar sized itself from its contents
+        // (32 + 6 + 32 = 70pt) while the detail pane was pinned to 84pt, and
+        // the two columns' chrome sat 14pt apart no matter what else changed.
+        .padding(.horizontal, Theme.headerHorizontalPadding)
+        .frame(height: Theme.headerContentHeight)
+        .frame(maxWidth: .infinity)
         .padding(.top, Theme.headerTopInset)
         .frame(maxWidth: .infinity, minHeight: Theme.headerHeight, alignment: .top)
-        // The glass is pushed into the background rather than wrapped around
-        // the controls. Applying `.ignoresSafeArea` to the interactive layer
-        // extended it under the title bar, where the window swallowed the
-        // clicks — that is why the gear button stopped responding.
+        // The glass sits behind the controls rather than wrapping them:
+        // `.ignoresSafeArea` on the interactive layer extended it under the
+        // title bar, where the window swallowed clicks and the gear button
+        // stopped responding.
         .background {
             Rectangle()
                 .fill(.clear)
@@ -276,58 +287,49 @@ struct ProjectListView: View {
     }
 
     private var list: some View {
+        // A flat list of projects and nothing else. Sections put a date row
+        // between the cards and dragged a hairline rule along with them; the
+        // month now lives on the card itself, so the list stays one rhythm.
         List {
-            ForEach(groups, id: \.key) { group in
-                Section {
-                    ForEach(group.projects) { project in
-                        ProjectRow(
-                            project: project,
-                            isDropTarget: dropTargetID == project.id,
-                            download: downloadInfo(for: project),
-                            isSelecting: isSelecting,
-                            isSelected: selectedIDs.contains(project.id)
-                        )
-                        .tag(project.id)
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            if isSelecting {
-                                withAnimation(motion(SoftIOSMotion.bouncySlide)) {
-                                    if selectedIDs.contains(project.id) {
-                                        selectedIDs.remove(project.id)
-                                    } else {
-                                        selectedIDs.insert(project.id)
-                                    }
-                                }
+            ForEach(flatProjects) { project in
+                ProjectRow(
+                    project: project,
+                    isDropTarget: dropTargetID == project.id,
+                    download: downloadInfo(for: project),
+                    isSelecting: isSelecting,
+                    isSelected: selectedIDs.contains(project.id)
+                )
+                .tag(project.id)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    if isSelecting {
+                        withAnimation(motion(SoftIOSMotion.bouncySlide)) {
+                            if selectedIDs.contains(project.id) {
+                                selectedIDs.remove(project.id)
                             } else {
-                                withAnimation(motion(SoftIOSMotion.state)) {
-                                    selectedProject = project
-                                }
+                                selectedIDs.insert(project.id)
                             }
                         }
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(
-                            selectedIDs.contains(project.id)
-                                ? Theme.accent.opacity(0.12)
-                                : Color.clear
-                        )
-                        .contextMenu {
-                            projectContextMenu(project)
-                        }
-                        .onDrop(
-                            of: [UTType.fileURL],
-                            isTargeted: targetBinding(for: project)
-                        ) { providers in
-                            handleDrop(providers, into: project)
+                    } else {
+                        withAnimation(motion(SoftIOSMotion.state)) {
+                            selectedProject = project
                         }
                     }
-                } header: {
-                    // A plain `Section(group.key)` draws a hairline rule under
-                    // the title on macOS. Supplying the header ourselves keeps
-                    // the label and drops the rule.
-                    Text(group.key)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .listRowSeparator(.hidden)
+                }
+                .listRowSeparator(.hidden)
+                .listRowBackground(
+                    selectedIDs.contains(project.id)
+                        ? Theme.accent.opacity(0.12)
+                        : Color.clear
+                )
+                .contextMenu {
+                    projectContextMenu(project)
+                }
+                .onDrop(
+                    of: [UTType.fileURL],
+                    isTargeted: targetBinding(for: project)
+                ) { providers in
+                    handleDrop(providers, into: project)
                 }
             }
         }
@@ -758,16 +760,22 @@ private struct ProjectRow: View {
                     .lineLimit(1)
                 if let download {
                     downloadProgress(download)
-                } else if project.isArchived {
-                    // The year/month already labels the section this row sits
-                    // in, so repeating it on every card is noise. Only the
-                    // archived state is worth a second line.
-                    Text("Archived")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.orange)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(Color.orange.opacity(0.16), in: Capsule())
+                } else {
+                    // The list is flat, so the month lives here rather than in
+                    // a section row of its own.
+                    HStack(spacing: 6) {
+                        Text(project.month.capitalized)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        if project.isArchived {
+                            Text("Archived")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.orange)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1)
+                                .background(Color.orange.opacity(0.16), in: Capsule())
+                        }
+                    }
                 }
             }
             Spacer(minLength: 0)
