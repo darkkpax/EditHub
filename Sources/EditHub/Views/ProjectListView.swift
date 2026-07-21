@@ -112,11 +112,13 @@ struct ProjectListView: View {
     private var sidebarHeader: some View {
         VStack(spacing: Theme.controlSpacing) {
             HStack(spacing: Theme.controlSpacing) {
-                // Traffic lights own the left of the title bar; the section
-                // control sits to their right, trailing-aligned.
-                Spacer(minLength: 72)
-
+                // Traffic lights own the first ~72pt of the title bar; the
+                // control sits directly after them rather than being pushed to
+                // the far edge, which left a dead gap across the header.
                 AppSectionControl(selection: $section)
+                    .padding(.leading, 72)
+
+                Spacer(minLength: 0)
             }
             .frame(height: Theme.controlHeight)
             .padding(.horizontal, Theme.headerHorizontalPadding)
@@ -124,13 +126,20 @@ struct ProjectListView: View {
             searchBar
                 .padding(.horizontal, Theme.headerHorizontalPadding)
         }
-        // Same three modifiers, in the same order, as the detail pane's header
-        // — that is what puts the two columns' chrome on one baseline. Any
-        // extra inset here is exactly how they drifted apart before.
+        // Same padding + frame as the detail pane's header, so the two columns'
+        // chrome sits on one baseline.
         .padding(.top, Theme.headerTopInset)
         .frame(maxWidth: .infinity, minHeight: Theme.headerHeight, alignment: .top)
-        .glassEffect(.regular, in: .rect(cornerRadius: 0))
-        .ignoresSafeArea(edges: .top)
+        // The glass is pushed into the background rather than wrapped around
+        // the controls. Applying `.ignoresSafeArea` to the interactive layer
+        // extended it under the title bar, where the window swallowed the
+        // clicks — that is why the gear button stopped responding.
+        .background {
+            Rectangle()
+                .fill(.clear)
+                .glassEffect(.regular, in: .rect(cornerRadius: 0))
+                .ignoresSafeArea(edges: .top)
+        }
     }
 
     private var searchBar: some View {
@@ -269,7 +278,7 @@ struct ProjectListView: View {
     private var list: some View {
         List {
             ForEach(groups, id: \.key) { group in
-                Section(group.key) {
+                Section {
                     ForEach(group.projects) { project in
                         ProjectRow(
                             project: project,
@@ -295,6 +304,7 @@ struct ProjectListView: View {
                                 }
                             }
                         }
+                        .listRowSeparator(.hidden)
                         .listRowBackground(
                             selectedIDs.contains(project.id)
                                 ? Theme.accent.opacity(0.12)
@@ -310,10 +320,19 @@ struct ProjectListView: View {
                             handleDrop(providers, into: project)
                         }
                     }
+                } header: {
+                    // A plain `Section(group.key)` draws a hairline rule under
+                    // the title on macOS. Supplying the header ourselves keeps
+                    // the label and drops the rule.
+                    Text(group.key)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .listRowSeparator(.hidden)
                 }
             }
         }
         .listStyle(.inset)
+        .listSectionSeparator(.hidden)
         .scrollContentBackground(.hidden)
         .scrollEdgeEffectStyle(.soft, for: .all)
         .contentMargins(.bottom, 92, for: .scrollContent)

@@ -68,7 +68,7 @@ final class ProjectStore {
         return groups
             .map { (sortKey, items) -> (sortKey: String, key: String, projects: [Project]) in
                 let sorted = items.sorted { $0.name < $1.name }
-                let label = "\(sorted[0].year) · \(sorted[0].month)"
+                let label = "\(sorted[0].year) \(sorted[0].month)"
                 return (sortKey: sortKey, key: label, projects: sorted)
             }
             .sorted { $0.sortKey > $1.sortKey }
