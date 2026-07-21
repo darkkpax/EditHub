@@ -10,16 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApplication.shared.setActivationPolicy(.regular)
         DispatchQueue.main.async {
             NSApplication.shared.activate(ignoringOtherApps: true)
-            self.styleMainWindow()
         }
-    }
-
-    private func styleMainWindow() {
-        guard let window = NSApplication.shared.windows.first else { return }
-        window.titlebarAppearsTransparent = true
-        window.titleVisibility = .hidden
-        window.styleMask.insert(.fullSizeContentView)
-        window.isMovableByWindowBackground = true
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

@@ -4,8 +4,8 @@ import AVFoundation
 import Observation
 
 /// Generates a cover thumbnail for a project using QuickLook — Apple's own
-/// preview engine (same one Finder uses). Looks for the first visual asset
-/// in READY VIDEO, then FOOTAGE, then B-ROLL.
+/// preview engine (same one Finder uses). Footage is the primary source so the
+/// project row resembles the media the editor is actually working with.
 @MainActor
 @Observable
 final class ProjectThumbnailLoader {
@@ -44,22 +44,34 @@ final class ProjectThumbnailLoader {
 
     /// Search visual folders for the first image/video file.
     static func firstVisualAsset(in project: Project) -> URL? {
-        let order: [ProjectFolder] = [.readyVideo, .broll, .footage]
+        let order: [ProjectFolder] = [.footage, .readyVideo, .broll]
         let visualExts: Set<String> = [
             "mov", "mp4", "m4v", "avi", "mkv",
             "jpg", "jpeg", "png", "heic", "tiff", "gif", "webp"
         ]
         let fm = FileManager.default
+        let resourceKeys: [URLResourceKey] = [
+            .isRegularFileKey,
+            .isUbiquitousItemKey,
+            .ubiquitousItemDownloadingStatusKey
+        ]
+        
         for folder in order {
             guard let dir = project.folderURL(folder) else { continue }
-            guard let items = try? fm.contentsOfDirectory(
-                at: dir, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
+            guard let enumerator = fm.enumerator(
+                at: dir,
+                includingPropertiesForKeys: resourceKeys,
+                options: [.skipsHiddenFiles]
             ) else { continue }
-            if let hit = items
-                .filter({ visualExts.contains($0.pathExtension.lowercased()) })
-                .sorted(by: { $0.lastPathComponent < $1.lastPathComponent })
-                .first {
-                return hit
+            
+            for case let item as URL in enumerator {
+                if visualExts.contains(item.pathExtension.lowercased()) {
+                    let values = try? item.resourceValues(forKeys: Set(resourceKeys))
+                    if values?.isUbiquitousItem == true, values?.ubiquitousItemDownloadingStatus == .notDownloaded {
+                        continue // Skip iCloud-offloaded files to avoid triggering full download
+                    }
+                    return item
+                }
             }
         }
         return nil

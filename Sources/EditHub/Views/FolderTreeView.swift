@@ -35,6 +35,7 @@ struct FileNode: Identifiable {
 /// once into state (and on the project id changing), not on every render.
 struct FolderTreeView: View {
     let rootURL: URL
+    var topContentInset: CGFloat = 0
 
     @State private var rootNodes: [FileNode] = []
     @State private var didLoad = false
@@ -49,12 +50,22 @@ struct FolderTreeView: View {
                                        description: Text("Drop files here to sort them into folders."))
             } else {
                 List {
+                    if topContentInset > 0 {
+                        Color.clear
+                            .frame(height: topContentInset)
+                            .listRowInsets(EdgeInsets())
+                            .listRowSeparator(.hidden)
+                            .accessibilityHidden(true)
+                    }
                     ForEach(rootNodes) { node in
                         FolderTreeRow(node: node, depth: 0)
+                            .listRowSeparator(.hidden)
                     }
                 }
-                .listStyle(.inset(alternatesRowBackgrounds: true))
+                .listStyle(.plain)
                 .scrollEdgeEffectStyle(.soft, for: .all)
+                .scrollIndicators(.hidden)
+                .contentMargins(.horizontal, 12, for: .scrollContent)
             }
         }
         .task(id: rootURL) {
@@ -77,6 +88,7 @@ private struct FolderTreeRow: View {
     @State private var isExpanded = false
     @State private var children: [FileNode]?
     @State private var childCount: Int?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var projectFolder: ProjectFolder? {
         node.isDirectory ? ProjectFolder(rawValue: node.url.lastPathComponent) : nil
@@ -95,6 +107,7 @@ private struct FolderTreeRow: View {
                 }
             }
         }
+        .listRowSeparator(.hidden)
         // Read the child count once for directories so the row can show a count
         // and a disclosure chevron without scanning on every render.
         .task(id: node.id) {
@@ -107,45 +120,57 @@ private struct FolderTreeRow: View {
     }
 
     private var row: some View {
-        HStack(spacing: 7) {
+        Button {
+            if node.isDirectory {
+                toggleExpansion()
+            } else {
+                NSWorkspace.shared.activateFileViewerSelecting([node.url])
+            }
+        } label: {
+            HStack(spacing: 10) {
             if node.isDirectory && (childCount ?? 0) > 0 {
                 Image(systemName: "chevron.right")
-                    .font(.caption2.weight(.bold))
+                    .font(.caption.weight(.semibold))
                     .foregroundStyle(.tertiary)
                     .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    .symbolEffect(.bounce.byLayer, value: isExpanded)
                     .frame(width: 12)
             } else {
                 Color.clear.frame(width: 12)
             }
 
+            // One optical size for every glyph in the tree: a mixed 18/22pt
+            // ramp made sibling rows look misaligned. `.frame` alone does not
+            // equalise them — SF Symbols scale by font size, not by frame.
             Image(systemName: icon)
-                .font(.system(size: 13))
+                .font(.system(size: 17, weight: .medium))
+                .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(accent)
-                .frame(width: 18)
+                .contentTransition(.symbolEffect(.replace))
+                .tactileSymbol()
+                .frame(width: 24, height: 24)
 
             Text(node.url.lastPathComponent)
-                .font(.callout)
+                .font(projectFolder == nil ? .body : .headline)
                 .lineLimit(1)
 
             Spacer(minLength: 8)
 
             if let count = childCount, count > 0 {
                 Text("\(count)")
-                    .font(.caption2.weight(.medium).monospacedDigit())
+                    .font(.caption.weight(.medium).monospacedDigit())
                     .foregroundStyle(.secondary)
             }
+            }
+            .padding(.leading, CGFloat(depth) * 16)
+            .padding(.vertical, projectFolder == nil ? 7 : 10)
+            .contentShape(Rectangle())
         }
-        .padding(.leading, CGFloat(depth) * 16)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            if node.isDirectory {
-                toggleExpansion()
-            } else {
+        .buttonStyle(.plain)
+        .contextMenu {
+            Button("Reveal in Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([node.url])
             }
-        }
-        .onTapGesture(count: 2) {
-            NSWorkspace.shared.activateFileViewerSelecting([node.url])
         }
     }
 
@@ -158,10 +183,10 @@ private struct FolderTreeRow: View {
                 let scanned = await Task.detached { FileNode.scan(url) }.value
                 children = scanned
                 childCount = scanned.count
-                withAnimation(Motion.snappy) { isExpanded = true }
+                withAnimation(reduceMotion ? .none : Motion.state) { isExpanded = true }
             }
         } else {
-            withAnimation(Motion.snappy) { isExpanded.toggle() }
+            withAnimation(reduceMotion ? .none : Motion.state) { isExpanded.toggle() }
         }
     }
 

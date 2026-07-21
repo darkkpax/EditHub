@@ -68,7 +68,7 @@ enum FileChecksum {
             throw NSError(
                 domain: "EditHub.Checksum",
                 code: 1,
-                userInfo: [NSLocalizedDescriptionKey: "Archive checksum mismatch — file may be corrupted."]
+                userInfo: [NSLocalizedDescriptionKey: "iCloud project checksum mismatch — file may be corrupted."]
             )
         }
     }

@@ -584,6 +584,29 @@ final class DownloadViewModel: NSObject {
             try Task.checkCancellation()
 
             let item = state.items[index]
+
+            // An empty source folder is represented by a placeholder item with
+            // no URL: there is nothing to fetch, so just create the directory
+            // and move on. Passing it to the transfer path used to crash.
+            if item.isFolderPlaceholder {
+                if let relativePath = item.relativeDestinationPath {
+                    var paths = topLevelDestinationPaths
+                    let folderURL = finalItemDestination(
+                        for: relativePath,
+                        into: finalDestination,
+                        topLevelDestinationPaths: &paths
+                    )
+                    topLevelDestinationPaths = paths
+                    state.topLevelDestinationPaths = paths
+                    try? fileManager.createDirectory(at: folderURL, withIntermediateDirectories: true)
+                }
+                state.currentIndex = index + 1
+                state.updatedAt = Date()
+                recoveryStore.save(state)
+                activeRecoveryState = state
+                continue
+            }
+
             let itemRequest = try await makeRequest(for: item, source: state.source)
             let fileBaseProgress = Double(index) / Double(max(state.items.count, 1))
             let fileSlice = 1.0 / Double(max(state.items.count, 1))
@@ -691,7 +714,10 @@ final class DownloadViewModel: NSObject {
         case .dropbox, .oneDrive, .pcloud, .mediafire:
             return item.request
         case .googleDrive:
-            var request = URLRequest(url: try makeGoogleDriveSourceURL(from: item.sourceURL))
+            guard let itemSourceURL = item.sourceURL else {
+                throw DownloaderError.unsupportedLink
+            }
+            var request = URLRequest(url: try makeGoogleDriveSourceURL(from: itemSourceURL))
             let key = GoogleDriveAPIKeyStorage.current()
             let accessToken = try await GoogleDriveAuthController.shared.currentAccessToken()
             guard !key.isEmpty || accessToken != nil else {

@@ -136,14 +136,17 @@ enum ProjectArchiver {
         }
 
         let archiveURL = archiveRoot.appendingPathComponent(manifest.archiveRelativePath)
-        try iCloudStore.ensureDownloaded(archiveURL)
-
-        if let expected = manifest.archiveChecksum {
-            try FileChecksum.verify(url: archiveURL, expected: expected)
+        let isDirectory = (try? archiveURL.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+        if isDirectory {
+            // Flutter/Windows archives are complete project directories rather than ZIP files.
+            try copyDirectoryContents(from: archiveURL, to: projectURL)
+        } else {
+            try iCloudStore.ensureDownloaded(archiveURL)
+            if let expected = manifest.archiveChecksum {
+                try FileChecksum.verify(url: archiveURL, expected: expected)
+            }
+            try ZipArchiver.unzip(archive: archiveURL, destination: projectURL)
         }
-
-        // Распаковываем поверх проекта — ценные папки, метаданные и файлы вернутся на места.
-        try ZipArchiver.unzip(archive: archiveURL, destination: projectURL)
 
         var metadata = ProjectMetadataStore.load(projectURL: projectURL)
         // Сохраняем идентичность из манифеста, если в распакованных метаданных
@@ -168,6 +171,29 @@ enum ProjectArchiver {
         try? fm.removeItem(at: manifestURL)
 
         return projectURL
+    }
+
+    private static func copyDirectoryContents(from source: URL, to destination: URL) throws {
+        let fm = FileManager.default
+        try fm.createDirectory(at: destination, withIntermediateDirectories: true)
+        let entries = try fm.contentsOfDirectory(
+            at: source,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        )
+        for entry in entries {
+            let target = destination.appendingPathComponent(entry.lastPathComponent)
+            if fm.fileExists(atPath: target.path) { try fm.removeItem(at: target) }
+            try fm.copyItem(at: entry, to: target)
+        }
+        // Hidden compatibility manifests are intentionally copied as well.
+        for hiddenName in [".edithub.json", ".edithub-metadata.json"] {
+            let entry = source.appendingPathComponent(hiddenName)
+            guard fm.fileExists(atPath: entry.path) else { continue }
+            let target = destination.appendingPathComponent(hiddenName)
+            if fm.fileExists(atPath: target.path) { try fm.removeItem(at: target) }
+            try fm.copyItem(at: entry, to: target)
+        }
     }
 
     // MARK: - Восстановление remoteOnly-проекта
@@ -200,12 +226,14 @@ enum ProjectArchiver {
             try? fm.createDirectory(at: sub, withIntermediateDirectories: false)
         }
 
-        // Скачиваем архив из iCloud если нужно.
         let archiveURL = archiveRoot.appendingPathComponent(relativePath)
-        try iCloudStore.ensureDownloaded(archiveURL)
-
-        // Распаковываем (checksum у remoteOnly нет в манифесте — нечего проверять).
-        try ZipArchiver.unzip(archive: archiveURL, destination: projectDir)
+        let isDirectory = (try? archiveURL.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+        if isDirectory {
+            try copyDirectoryContents(from: archiveURL, to: projectDir)
+        } else {
+            try iCloudStore.ensureDownloaded(archiveURL)
+            try ZipArchiver.unzip(archive: archiveURL, destination: projectDir)
+        }
 
         // Фиксируем UUID.
         var metadata = ProjectMetadataStore.load(projectURL: projectDir)

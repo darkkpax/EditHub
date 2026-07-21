@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		05D72AAC49E8C6AF4A2D954C /* ProjectMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCFA1049CC0B7953E0FAA0F8 /* ProjectMetadata.swift */; };
 		13BD57B9CA04FAA0470ADA38 /* RootSplitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D487C01EB9F8618371305004 /* RootSplitView.swift */; };
+		14773A112F4D4C7D9A18B221 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14773A102F4D4C7D9A18B221 /* SettingsView.swift */; };
 		17F7BA682DF6907F85B23266 /* ICloudArchiveImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63412407D335EF11AD9AD58E /* ICloudArchiveImporter.swift */; };
 		1805A929D1CAABFE71A1924A /* iCloudStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96D2AAB7DB00B6F0C2169CCF /* iCloudStore.swift */; };
 		1E20B6E933E9AFB945B834CC /* ProjectDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DA39B3A313B3D08E116DA12 /* ProjectDetailView.swift */; };
@@ -36,7 +37,6 @@
 		CA65E9E1DE0AFC2AD3CD02A4 /* SpotlightSearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F3104C59BE9BB5547C676BF /* SpotlightSearchView.swift */; };
 		CBADA67CF60058E99AE0473B /* FolderBookmarkStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E839EA0E760AA0EEA8A18113 /* FolderBookmarkStore.swift */; };
 		CBF91F848AC1F0A0D27F10B4 /* DirectHostProviders.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCF41A1C142432BE6757BC11 /* DirectHostProviders.swift */; };
-		CF8F1DCB2F1BA46BF96B0FC3 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B80F9887C8A53587C05B1704 /* LoginView.swift */; };
 		CFDD9571C165A500EB587CA3 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45723C55BCB302C0BBC347BE /* AppDelegate.swift */; };
 		D7A16610303F0E3CF128778D /* DownloadViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9766644C03AC5DC1D19C2CB /* DownloadViewModel.swift */; };
 		E732FCC468B16629118DDBED /* ArchiveOptionsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87379CAD5452CE5507BEC483 /* ArchiveOptionsSheet.swift */; };
@@ -47,6 +47,7 @@
 
 /* Begin PBXFileReference section */
 		079638C72DAB994567E392E8 /* ProjectStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectStore.swift; sourceTree = "<group>"; };
+		14773A102F4D4C7D9A18B221 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		0B06C131B9B3696FCABAA084 /* ZipArchiver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZipArchiver.swift; sourceTree = "<group>"; };
 		1CDA13188E2F7971D3A07311 /* ProjectListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectListView.swift; sourceTree = "<group>"; };
 		1DE72D2EDB64397DE72B5BF6 /* EditHub.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = EditHub.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -68,7 +69,6 @@
 		96D2AAB7DB00B6F0C2169CCF /* iCloudStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = iCloudStore.swift; sourceTree = "<group>"; };
 		A0CE72B96A0CC3E17D59AD1A /* GoogleDriveAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoogleDriveAuth.swift; sourceTree = "<group>"; };
 		B686A22B1A237B2887765446 /* AuthStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthStore.swift; sourceTree = "<group>"; };
-		B80F9887C8A53587C05B1704 /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
 		B9766644C03AC5DC1D19C2CB /* DownloadViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadViewModel.swift; sourceTree = "<group>"; };
 		C8B4DD423533685BAEAF7EED /* FolderTreeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderTreeView.swift; sourceTree = "<group>"; };
 		CCF41A1C142432BE6757BC11 /* DirectHostProviders.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DirectHostProviders.swift; sourceTree = "<group>"; };
@@ -108,10 +108,10 @@
 				87379CAD5452CE5507BEC483 /* ArchiveOptionsSheet.swift */,
 				D665350E3676078B56CA1B47 /* CreateAndDownloadPopover.swift */,
 				C8B4DD423533685BAEAF7EED /* FolderTreeView.swift */,
-				B80F9887C8A53587C05B1704 /* LoginView.swift */,
 				2DA39B3A313B3D08E116DA12 /* ProjectDetailView.swift */,
 				1CDA13188E2F7971D3A07311 /* ProjectListView.swift */,
 				D487C01EB9F8618371305004 /* RootSplitView.swift */,
+				14773A102F4D4C7D9A18B221 /* SettingsView.swift */,
 				2F3104C59BE9BB5547C676BF /* SpotlightSearchView.swift */,
 			);
 			path = Views;
@@ -275,7 +275,6 @@
 				89BF5CE96BB0696C0671ADC7 /* GoogleDriveAuth.swift in Sources */,
 				17F7BA682DF6907F85B23266 /* ICloudArchiveImporter.swift in Sources */,
 				313BC20FB71EFE9B0830B496 /* KeychainCredentialStore.swift in Sources */,
-				CF8F1DCB2F1BA46BF96B0FC3 /* LoginView.swift in Sources */,
 				FF26985F4EE5970BCB886D24 /* MonthKey.swift in Sources */,
 				3EA5AF31198912AC52952506 /* NetworkClient.swift in Sources */,
 				5FAEC4730E04E943FD0B5DEC /* Project.swift in Sources */,
@@ -291,6 +290,7 @@
 				F85425F48FC523EDED390F1F /* Providers.swift in Sources */,
 				58EDB5C4C74D3EC299B378CB /* RestoreCoordinator.swift in Sources */,
 				13BD57B9CA04FAA0470ADA38 /* RootSplitView.swift in Sources */,
+				14773A112F4D4C7D9A18B221 /* SettingsView.swift in Sources */,
 				BB8E290B3FD5F4E734E96C7F /* ServerModels.swift in Sources */,
 				CA65E9E1DE0AFC2AD3CD02A4 /* SpotlightSearchView.swift in Sources */,
 				A910B72621DDD622B67D618F /* ZipArchiver.swift in Sources */,

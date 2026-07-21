@@ -1,124 +1,171 @@
 import SwiftUI
 
-// MARK: - Design tokens
-//
-// EditHub uses the native macOS look: system materials, the user's accent
-// color, standard controls and typography. The main window stays native; the
-// compact project creator reuses the small Liquid Glass card style from the
-// standalone ProjectCreator app.
-
+/// Small compatibility layer for older call sites. Visual styling is supplied
+/// by native SwiftUI controls and system materials in the views themselves.
 enum Theme {
-    /// The app accent. Follows the user's system accent color.
     static let accent = Color.accentColor
 
-    static let cardRadius: CGFloat = 10
-    static let controlRadius: CGFloat = 7
+    // Corner radii, named for the thing they wrap. The values match what the
+    // views actually draw — previously `cardRadius`/`controlRadius` claimed
+    // 10/7 while every call site hard-coded 8/12/16/24, so the tokens meant
+    // nothing. Keep new radii on this scale instead of adding a literal.
+    /// Thumbnails, small chips, inline stat pills.
+    static let smallRadius: CGFloat = 8
+    /// Cards, list tiles, the detail header's icon well.
+    static let cardRadius: CGFloat = 12
+    /// Text fields and buttons inside popovers.
+    static let controlRadius: CGFloat = 16
+    /// Floating popovers and sheets.
+    static let popoverRadius: CGFloat = 24
 
     static let pagePadding: CGFloat = 24
     static let sectionSpacing: CGFloat = 18
+
+    // Shared chrome metrics keep sidebar and detail actions on one visual grid.
+    // Both headers sit under the transparent title bar, so `headerTopInset`
+    // clears the traffic lights and `headerContentHeight` is the space below it
+    // that holds the controls. Their sum is the full header height that content
+    // must be inset by so nothing starts hidden underneath.
+    static let headerTopInset: CGFloat = 10
+    // 32pt controls + 6pt row gap + 34pt search + 12pt bottom inset.
+    // Keep this arithmetic explicit so enlarging a control cannot silently
+    // consume the visible space below the search field again.
+    static let headerContentHeight: CGFloat = 84
+    static let headerHeight: CGFloat = headerTopInset + headerContentHeight
+    static let controlHeight: CGFloat = 32
+    static let controlSpacing: CGFloat = 6
+    static let headerHorizontalPadding: CGFloat = 14
+    /// Compact icon buttons in the sidebar header, matched to the system
+    /// sidebar-toggle control so the row reads as one set.
+    static let headerButtonSize: CGFloat = 32
 }
 
-/// Standard motion. Native, restrained.
+extension View {
+    /// A consistent symbol canvas for icon-only controls in app headers.
+    func headerActionLabel() -> some View {
+        frame(width: Theme.controlHeight, height: Theme.controlHeight)
+            .contentShape(.circle)
+    }
+
+    /// Subtle symbol hover feedback. Press handling deliberately stays on the
+    /// enclosing Button so the glyph never becomes a competing hit target.
+    func tactileSymbol() -> some View {
+        modifier(TactileSymbolModifier())
+    }
+}
+
 enum Motion {
-    static let standard = Animation.smooth(duration: 0.28)
-    static let snappy = Animation.snappy(duration: 0.24)
-    static let quick = Animation.easeInOut(duration: 0.18)
+    /// Pointer-down and other immediate feedback.
+    static let press = Animation.interactiveSpring(response: 0.16, dampingFraction: 0.78)
+    /// Selection, toggles, symbol replacement, and small state changes.
+    static let feedback = Animation.spring(duration: 0.24, bounce: 0.22)
+    /// General UI state changes: quick with a small, macOS-appropriate overshoot.
+    static let state = Animation.spring(duration: 0.32, bounce: 0.16)
+    /// Insertions, sheets, banners, and disclosure content.
+    static let reveal = Animation.spring(duration: 0.4, bounce: 0.12)
+    /// Shared geometry and Liquid Glass shape changes.
+    static let morph = Animation.spring(duration: 0.46, bounce: 0.18)
+    /// Progress and text should settle without visible bounce.
+    static let continuous = Animation.smooth(duration: 0.22)
+
+    static let standard = state
+    static let snappy = feedback
+    static let quick = press
 }
 
-// MARK: - Compatibility aliases
-//
-// Older call sites reference these names. They now resolve to native styling
-// so the whole app shares one visual language.
-
-enum LiquidGlassPalette {
-    static let blue1 = Color.accentColor
-    static let blue2 = Color.accentColor
-}
-
-enum AppUI {
-    static let pagePadding = Theme.pagePadding
-    static let sectionSpacing = Theme.sectionSpacing
-    static let controlHeight: CGFloat = 28
-    static let cardRadius = Theme.cardRadius
-    static let controlRadius = Theme.controlRadius
-}
-
-// Restrained, native-feeling motion. A small, consistent set — no overshoot,
-// no playful springs. macOS apps move subtly; these match that.
+/// Intent-named aliases over `Motion`, so download/service code can say what a
+/// transition *is* rather than which curve it uses. Only the names actually in
+/// use are kept — five more (`hover`, `press`, `pressRelease`, `iconPop`,
+/// `tapSpring`) were never referenced and are gone; use `Motion` directly for
+/// new call sites that don't have a distinct intent to name.
 enum SoftIOSMotion {
-    static let hover = Animation.easeOut(duration: 0.16)
-    static let press = Animation.easeOut(duration: 0.12)
-    static let pressRelease = Animation.spring(response: 0.34, dampingFraction: 0.56)
-    static let state = Animation.smooth(duration: 0.24)
-    static let text = Animation.easeInOut(duration: 0.2)
-    static let progress = Animation.easeInOut(duration: 0.18)
-    static let entry = Animation.smooth(duration: 0.3)
-    static let pause = Animation.smooth(duration: 0.24)
-    static let morph = Animation.smooth(duration: 0.26)
-    static let bouncySlide = Animation.snappy(duration: 0.28)
-    static let controlSwap = Animation.smooth(duration: 0.3)
-    static let modal = Animation.smooth(duration: 0.28)
-    /// Spring with overshoot — used for icon pop-in, like VPN app circles.
-    static let iconPop = Animation.spring(response: 0.45, dampingFraction: 0.6)
-    /// Quick squash-on-press, springy release (Telegram iOS style).
-    static let tapSpring = Animation.spring(response: 0.36, dampingFraction: 0.52)
+    static let state = Motion.state
+    static let text = Motion.continuous
+    static let progress = Motion.continuous
+    static let entry = Motion.reveal
+    static let pause = Motion.feedback
+    static let morph = Motion.morph
+    static let bouncySlide = Motion.state
+    static let controlSwap = Motion.state
+    static let modal = Motion.reveal
+}
+
+private struct TactileSymbolModifier: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isHovered = false
+
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(reduceMotion ? 1 : (isHovered ? 1.06 : 1))
+            .animation(reduceMotion ? .none : Motion.feedback, value: isHovered)
+            .onHover { isHovered = $0 }
+    }
 }
 
 // MARK: - App backdrop
 
-/// Animated blob backdrop — three soft radial blobs that slowly drift,
-/// giving Liquid Glass surfaces uneven, colorful content to refract
-/// (the same trick Apple uses in Music, Freeform, and Control Center).
 struct WindowBackdrop: View {
-    @State private var phase: Double = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Rectangle()
             .fill(.background)
             .overlay {
-                TimelineView(.animation(minimumInterval: 1/30)) { tl in
-                    let t = tl.date.timeIntervalSinceReferenceDate * 0.18
-                    ZStack {
-                        // Large top-left blob
-                        EllipticalGradient(
-                            colors: [Theme.accent.opacity(0.14), .clear],
-                            center: UnitPoint(
-                                x: 0.12 + 0.08 * sin(t * 0.7),
-                                y: 0.08 + 0.06 * cos(t * 0.5)
-                            ),
-                            endRadiusFraction: 0.62
-                        )
-
-                        // Mid right blob
-                        EllipticalGradient(
-                            colors: [Theme.accent.opacity(0.09), .clear],
-                            center: UnitPoint(
-                                x: 0.82 + 0.07 * cos(t * 0.6 + 1.2),
-                                y: 0.38 + 0.09 * sin(t * 0.4 + 0.8)
-                            ),
-                            endRadiusFraction: 0.52
-                        )
-
-                        // Bottom-center accent blob
-                        EllipticalGradient(
-                            colors: [Theme.accent.opacity(0.07), .clear],
-                            center: UnitPoint(
-                                x: 0.45 + 0.10 * sin(t * 0.35 + 2.1),
-                                y: 0.85 + 0.05 * cos(t * 0.55 + 0.3)
-                            ),
-                            endRadiusFraction: 0.45
-                        )
+                // A full-window field of slowly drifting blobs is exactly the
+                // kind of large-surface ambient motion Reduce Motion exists to
+                // suppress, and redrawing it forever costs battery for decoration.
+                // Freeze it to a static composition instead of dropping it, so
+                // the window keeps its depth without the perpetual animation.
+                if reduceMotion {
+                    blobs(at: 0)
+                } else {
+                    TimelineView(.animation(minimumInterval: 1 / 30)) { tl in
+                        blobs(at: tl.date.timeIntervalSinceReferenceDate * 0.18)
                     }
                 }
             }
             .ignoresSafeArea()
     }
+
+    /// The three drifting accent blobs at animation time `t`. At `t == 0` this
+    /// is the static composition used under Reduce Motion.
+    private func blobs(at t: Double) -> some View {
+        ZStack {
+            // Large top-left blob
+            EllipticalGradient(
+                colors: [Theme.accent.opacity(0.14), .clear],
+                center: UnitPoint(
+                    x: 0.12 + 0.08 * sin(t * 0.7),
+                    y: 0.08 + 0.06 * cos(t * 0.5)
+                ),
+                endRadiusFraction: 0.62
+            )
+
+            // Mid right blob
+            EllipticalGradient(
+                colors: [Theme.accent.opacity(0.09), .clear],
+                center: UnitPoint(
+                    x: 0.82 + 0.07 * cos(t * 0.6 + 1.2),
+                    y: 0.38 + 0.09 * sin(t * 0.4 + 0.8)
+                ),
+                endRadiusFraction: 0.52
+            )
+
+            // Bottom-center accent blob
+            EllipticalGradient(
+                colors: [Theme.accent.opacity(0.07), .clear],
+                center: UnitPoint(
+                    x: 0.45 + 0.10 * sin(t * 0.35 + 2.1),
+                    y: 0.85 + 0.05 * cos(t * 0.55 + 0.3)
+                ),
+                endRadiusFraction: 0.45
+            )
+        }
+    }
 }
 
 // MARK: - Panel backdrop
 
-/// Backdrop for sidebars: thin system material so the Liquid Glass controls
-/// can refract the animated blobs behind them.
 struct DefaultLiquidGlassBackground: View {
     var body: some View {
         ZStack {
@@ -129,246 +176,5 @@ struct DefaultLiquidGlassBackground: View {
                 .fill(.ultraThinMaterial)
                 .ignoresSafeArea()
         }
-    }
-}
-
-/// Shared top chrome for the project browser. Native material supplies the
-/// live backdrop blur; the faint diagonal frost matches Flutter's glass strip.
-struct FrostedHeaderStrip: View {
-    var body: some View {
-        Rectangle()
-            .fill(.ultraThinMaterial)
-            .overlay {
-                LinearGradient(
-                    colors: [.white.opacity(0.08), .white.opacity(0.025), .clear],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            }
-            .overlay(alignment: .bottom) {
-                Rectangle()
-                    .fill(.white.opacity(0.10))
-                    .frame(height: 1)
-            }
-    }
-}
-
-// MARK: - Liquid Glass card surface
-
-extension View {
-    func glassPrimaryText(size: CGFloat) -> some View {
-        font(.system(size: size, weight: .medium))
-    }
-
-    func glassSecondaryText(size: CGFloat) -> some View {
-        font(.system(size: size, weight: .medium))
-    }
-
-    func glassButtonText(size: CGFloat) -> some View {
-        font(.system(size: size, weight: .semibold))
-    }
-
-    func glassEmphasizedButtonText(size: CGFloat) -> some View {
-        font(.system(size: size, weight: .semibold))
-    }
-
-    func liquidGlassControl(
-        cornerRadius: CGFloat = 10,
-        minHeight: CGFloat = 28,
-        horizontalPadding: CGFloat = 11,
-        expandsToMaxWidth: Bool = true,
-        interactive: Bool = true,
-        accentColor: Color = .white
-    ) -> some View {
-        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-
-        return Group {
-            if expandsToMaxWidth {
-                self
-                    .padding(.horizontal, horizontalPadding)
-                    .frame(maxWidth: .infinity, minHeight: minHeight, alignment: .leading)
-            } else {
-                self
-                    .padding(.horizontal, horizontalPadding)
-                    .frame(minHeight: minHeight, alignment: .leading)
-            }
-        }
-        .background {
-            shape
-                .fill(.clear)
-                .glassEffect(interactive ? .regular.interactive() : .regular, in: shape)
-        }
-        .modifier(SoftGlassHoverModifier(enabled: interactive))
-    }
-
-    func liquidGlassButton(
-        cornerRadius: CGFloat = 10,
-        accentColor: Color = .white
-    ) -> some View {
-        buttonStyle(SoftIOSButtonStyle())
-            .liquidGlassControl(
-                cornerRadius: cornerRadius,
-                minHeight: 28,
-                horizontalPadding: 0,
-                accentColor: accentColor
-            )
-    }
-
-    /// A Liquid Glass card — the building block for rows, panels and floating
-    /// surfaces throughout the app. Selected cards take an accent tint.
-    func glassCard(
-        cornerRadius: CGFloat = Theme.cardRadius,
-        selected: Bool = false,
-        interactive: Bool = true,
-        accent: Color = Theme.accent
-    ) -> some View {
-        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        var glass: Glass = .regular
-        if selected { glass = glass.tint(accent.opacity(0.55)) }
-        if interactive { glass = glass.interactive() }
-        return self.glassEffect(glass, in: shape)
-    }
-}
-
-private struct SoftGlassHoverModifier: ViewModifier {
-    @State private var isHovered = false
-    var enabled = true
-
-    func body(content: Content) -> some View {
-        content
-            // Liquid Glass already responds to hover via `.interactive()`; keep
-            // the extra scale tiny so it reads as native, not springy.
-            .scaleEffect(enabled && isHovered ? 1.005 : 1.0)
-            .onHover { hovering in
-                guard enabled else { return }
-                withAnimation(SoftIOSMotion.hover) {
-                    isHovered = hovering
-                }
-            }
-    }
-}
-
-struct SoftIOSButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .opacity(configuration.isPressed ? 0.85 : 1)
-            .animation(SoftIOSMotion.press, value: configuration.isPressed)
-    }
-}
-
-// MARK: - Animated action circle (VPN-style)
-
-/// Round accent circle with icon — presses with spring squash, flashes on tap.
-/// Mirrors the action circles in the chameleonvpn mini-app.
-struct ActionCircle: View {
-    let systemImage: String
-    let label: String
-    var accent: Color = Theme.accent
-    var onTap: () -> Void
-
-    @State private var isPressed = false
-    @State private var flashTick = false
-    @State private var isHovered = false
-
-    var body: some View {
-        Button {
-            withAnimation(SoftIOSMotion.tapSpring) { flashTick.toggle() }
-            onTap()
-        } label: {
-            VStack(spacing: 8) {
-                ZStack {
-                    Circle()
-                        .fill(flashTick
-                              ? accent
-                              : accent.opacity(isHovered ? 0.2 : 0.14))
-                        .frame(width: 44, height: 44)
-                        .animation(.easeOut(duration: 0.55), value: flashTick)
-
-                    Image(systemName: systemImage)
-                        .font(.system(size: 19, weight: .semibold))
-                        .foregroundStyle(flashTick ? .white : accent)
-                        .scaleEffect(isPressed ? 0.82 : 1)
-                        .animation(SoftIOSMotion.tapSpring, value: isPressed)
-                        .symbolEffect(.bounce, value: flashTick)
-                }
-                .scaleEffect(isPressed ? 0.88 : 1)
-                .animation(SoftIOSMotion.tapSpring, value: isPressed)
-
-                Text(label)
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(accent)
-            }
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovered = $0 }
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in if !isPressed { withAnimation { isPressed = true } } }
-                .onEnded { _ in withAnimation(SoftIOSMotion.pressRelease) { isPressed = false } }
-        )
-    }
-}
-
-// MARK: - Animated toolbar icon button (VPN-style)
-
-/// Small icon button with hover glow and press-spring. Used in toolbars.
-struct AnimatedIconButton: View {
-    let systemImage: String
-    var color: Color = .secondary
-    var size: CGFloat = 13
-    var help: String = ""
-    var onTap: () -> Void
-
-    @State private var isPressed = false
-    @State private var isHovered = false
-
-    var body: some View {
-        Button { onTap() } label: {
-            Image(systemName: systemImage)
-                .font(.system(size: size, weight: .semibold))
-                .foregroundStyle(isHovered ? color : color.opacity(0.7))
-                .frame(width: 28, height: 28)
-                .background(
-                    Circle()
-                        .fill(isHovered ? color.opacity(0.12) : Color.clear)
-                        .animation(SoftIOSMotion.hover, value: isHovered)
-                )
-                .scaleEffect(isPressed ? 0.86 : 1)
-                .animation(SoftIOSMotion.tapSpring, value: isPressed)
-        }
-        .buttonStyle(.plain)
-        .help(help)
-        .onHover { isHovered = $0 }
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in if !isPressed { withAnimation { isPressed = true } } }
-                .onEnded { _ in withAnimation(SoftIOSMotion.pressRelease) { isPressed = false } }
-        )
-    }
-}
-
-// MARK: - Entrance animation modifier
-
-/// Applies a "pop in from below" entrance — like VPN app's .fade class.
-extension View {
-    func popEntrance(delay: Double = 0) -> some View {
-        modifier(PopEntranceModifier(delay: delay))
-    }
-}
-
-private struct PopEntranceModifier: ViewModifier {
-    let delay: Double
-    @State private var appeared = false
-
-    func body(content: Content) -> some View {
-        content
-            .opacity(appeared ? 1 : 0)
-            .scaleEffect(appeared ? 1 : 0.92)
-            .offset(y: appeared ? 0 : 10)
-            .onAppear {
-                withAnimation(.spring(response: 0.42, dampingFraction: 0.7).delay(delay)) {
-                    appeared = true
-                }
-            }
     }
 }

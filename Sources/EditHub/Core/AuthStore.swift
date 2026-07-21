@@ -50,9 +50,17 @@ final class AuthStore {
     /// Called after the user grants sandbox access to their iCloud Drive folder.
     func importSharedSession(from selectedICloudURL: URL) {
         guard token == nil else { return }
-        let candidates = selectedICloudURL.lastPathComponent == "EditHub"
-            ? [selectedICloudURL.appendingPathComponent("auth.json")]
-            : [selectedICloudURL.appendingPathComponent("EditHub/auth.json")]
+        let selectedName = selectedICloudURL.lastPathComponent.lowercased()
+        let candidates: [URL]
+        if selectedName == "edithub" || selectedName == "edit hub" {
+            candidates = [selectedICloudURL.appendingPathComponent("auth.json")]
+        } else {
+            candidates = [
+                selectedICloudURL.appendingPathComponent("EditHub/auth.json"),
+                selectedICloudURL.appendingPathComponent("edithub/auth.json"),
+                selectedICloudURL.appendingPathComponent("Edit Hub/auth.json")
+            ]
+        }
         guard let shared = Self.loadSharedSession(from: candidates),
               let payload = jwtPayload(shared.token),
               let exp = payload["exp"] as? TimeInterval,

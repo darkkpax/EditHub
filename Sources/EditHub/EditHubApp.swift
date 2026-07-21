@@ -11,7 +11,7 @@ struct EditHubApp: App {
             RootSplitView()
                 .environment(store)
                 .frame(minWidth: 880, minHeight: 560)
-                .background(MainWindowConfigurator())
+                .background(WindowChromeConfigurator())
                 .onAppear {
                     appDelegate.attach(store: store)
                     if auth.isLoggedIn { store.syncWithServer() }
@@ -21,6 +21,7 @@ struct EditHubApp: App {
                 }
         }
         .windowResizability(.contentMinSize)
+        .windowToolbarStyle(.unified(showsTitle: false))
         .defaultSize(width: 1100, height: 720)
         .defaultPosition(.center)
         .commands {
@@ -29,15 +30,28 @@ struct EditHubApp: App {
     }
 }
 
-/// Raises the main window to the front once it attaches. SwiftUI handles sizing
-/// and centering now that the window is resizable (`.contentMinSize` +
-/// `.defaultPosition(.center)`), so this no longer fights the window frame.
-private struct MainWindowConfigurator: NSViewRepresentable {
+private struct WindowChromeConfigurator: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
-        DispatchQueue.main.async { view.window?.makeKeyAndOrderFront(nil) }
+        DispatchQueue.main.async { configure(view.window) }
         return view
     }
 
-    func updateNSView(_ nsView: NSView, context: Context) {}
+    func updateNSView(_ view: NSView, context: Context) {
+        DispatchQueue.main.async { configure(view.window) }
+    }
+
+    private func configure(_ window: NSWindow?) {
+        guard let window else { return }
+        window.styleMask.insert(.fullSizeContentView)
+        // window.toolbar = nil // Removed to restore hit-testing for custom titlebar buttons
+        // Keep custom controls in the full-size title-bar region interactive.
+        // The native title bar itself remains draggable.
+        window.isMovableByWindowBackground = false
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.standardWindowButton(.closeButton)?.isHidden = false
+        window.standardWindowButton(.miniaturizeButton)?.isHidden = false
+        window.standardWindowButton(.zoomButton)?.isHidden = false
+    }
 }

@@ -1,7 +1,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Project detail: header with actions, a stats bar, and the folder tree.
+/// Project detail: a floating glass header over the folder tree.
 /// Dropping files anywhere sorts them into the right folders.
 struct ProjectDetailView: View {
     @Environment(ProjectStore.self) private var store
@@ -14,25 +14,44 @@ struct ProjectDetailView: View {
     @State private var isDropTargeted = false
     @State private var lastSummary: SortSummary?
     @State private var showArchiveSheet = false
+    @State private var showAddFootageSheet = false
     @State private var stats: ProjectStats?
     @State private var footageLink = ""
     @State private var hasSavedFootageLink = false
+    @State private var showDeleteConfirmation = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var accent: Color { project.isArchived ? .orange : Theme.accent }
+    private let headerHeight: CGFloat = Theme.headerHeight
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            header
-                .frame(height: 116)
-                .background { FrostedHeaderStrip() }
-            Divider()
-            statsBar
-            Divider()
-            if project.isRemoteOnly {
-                remoteOnlyPlaceholder
-            } else {
-                FolderTreeView(rootURL: project.url ?? URL(fileURLWithPath: "/"))
-                    .id(project.id)
+        GeometryReader { geometry in
+            let contentHeaderInset = max(0, headerHeight - geometry.safeAreaInsets.top)
+
+            ZStack(alignment: .top) {
+                if let cloudDirectoryURL {
+                    FolderTreeView(rootURL: cloudDirectoryURL, topContentInset: contentHeaderInset)
+                        .id("cloud-\(project.id)")
+                } else if project.isRemoteOnly {
+                    remoteOnlyPlaceholder
+                        .padding(.top, contentHeaderInset)
+                } else {
+                    FolderTreeView(
+                        rootURL: project.url ?? URL(fileURLWithPath: "/"),
+                        topContentInset: contentHeaderInset
+                    )
+                        .id(project.id)
+                }
+
+                header
+                    .padding(.horizontal, Theme.headerHorizontalPadding)
+                    .frame(height: Theme.headerContentHeight)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, Theme.headerTopInset)
+                    .frame(maxWidth: .infinity, minHeight: headerHeight, alignment: .top)
+                    .glassEffect(.regular, in: .rect(cornerRadius: 0))
+                    .ignoresSafeArea(edges: .top)
+                    .zIndex(2)
             }
         }
         .task(id: project.id) {
@@ -51,31 +70,45 @@ struct ProjectDetailView: View {
                 showArchiveSheet = false
             }
         }
+        .sheet(isPresented: $showAddFootageSheet) {
+            AddFootageSheet(projectName: project.name) { links in
+                showAddFootageSheet = false
+                queueAdditionalFootage(links)
+            } onCancel: {
+                showAddFootageSheet = false
+            }
+        }
+        .confirmationDialog(
+            "Delete \(project.name)?",
+            isPresented: $showDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Delete Project", role: .destructive, action: deleteProject)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The project folder and all of its contents will be permanently removed from this Mac.")
+        }
     }
 
     // MARK: - Header
 
     private var header: some View {
-        HStack(spacing: 12) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(accent.opacity(0.14))
-                    .frame(width: 48, height: 48)
-                Image(systemName: project.isArchived ? "archivebox.fill" : "folder.fill")
-                    .font(.title2)
-                    .foregroundStyle(accent)
-                    .symbolEffect(.bounce, value: project.isArchived)
-            }
-            .popEntrance(delay: 0.04)
+        HStack(spacing: 14) {
+            Image(systemName: project.isArchived ? "archivebox.fill" : "folder.fill")
+                .font(.system(size: 26, weight: .medium))
+                .foregroundStyle(accent)
+                .symbolEffect(.bounce.byLayer, value: project.id)
+                .frame(width: 48, height: 48)
+                .glassEffect(.regular.tint(accent.opacity(0.22)), in: .rect(cornerRadius: Theme.cardRadius))
 
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 8) {
                     Text(project.name)
-                        .font(.title3.weight(.semibold))
+                        .font(.system(size: 20, weight: .bold))
                         .lineLimit(1)
                         .contentTransition(.interpolate)
                     if project.isArchived {
-                        Text("Archived")
+                        Text("In iCloud")
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(.orange)
                             .padding(.horizontal, 6).padding(.vertical, 2)
@@ -83,12 +116,13 @@ struct ProjectDetailView: View {
                             .transition(.scale(scale: 0.7).combined(with: .opacity))
                     }
                 }
-                Text("\(project.year) · \(project.month)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 10) {
+                    Text("\(project.month.capitalized) \(project.year)")
+                    if let stats { Text("Size \(stats.totalSizeText)") }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
-            .popEntrance(delay: 0.08)
-
             Spacer()
 
             if isWorking {
@@ -97,113 +131,90 @@ struct ProjectDetailView: View {
                     .transition(.scale.combined(with: .opacity))
             }
 
-            // Action circles (VPN-style)
-            HStack(spacing: 12) {
-                ActionCircle(
-                    systemImage: "arrow.up.forward.app",
-                    label: "Reveal",
-                    accent: accent
-                ) {
-                    if let u = project.url { NSWorkspace.shared.open(u) }
+            GlassEffectContainer(spacing: Theme.controlSpacing) {
+                HStack(spacing: Theme.controlSpacing) {
+                if !project.isArchived && !project.isRemoteOnly {
+                    Button(action: openProject) {
+                        Image(systemName: "play.fill")
+                            .tactileSymbol()
+                            .headerActionLabel()
+                    }
+                    .buttonStyle(.glassProminent)
+                    .buttonBorderShape(.circle)
+                    .help("Open project")
+                    .accessibilityLabel("Open project")
+
+                    Button {
+                        showAddFootageSheet = true
+                    } label: {
+                        Image(systemName: "arrow.down.circle")
+                            .tactileSymbol()
+                            .headerActionLabel()
+                    }
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.circle)
+                    .help("Add footage links")
+                    .accessibilityLabel("Add footage links")
+                    .disabled(project.url == nil)
                 }
+
+                Button {
+                    if let u = project.url { NSWorkspace.shared.open(u) }
+                } label: {
+                    Image(systemName: "folder")
+                        .tactileSymbol()
+                        .headerActionLabel()
+                }
+                .buttonStyle(.glass)
+                .buttonBorderShape(.circle)
+                .help("Reveal in Finder")
+                .accessibilityLabel("Reveal in Finder")
                 .disabled(project.url == nil)
-                .popEntrance(delay: 0.10)
 
                 if project.isArchived {
-                    ActionCircle(
-                        systemImage: hasSavedFootageLink ? "arrow.down.circle.fill" : "arrow.down.circle",
-                        label: hasSavedFootageLink ? "Restore+" : "Restore",
-                        accent: accent
-                    ) {
-                        runRestore(downloadFootage: hasSavedFootageLink)
-                    }
-                    .disabled(isWorking)
-                    .popEntrance(delay: 0.14)
-                } else {
-                    ActionCircle(
-                        systemImage: "archivebox",
-                        label: "Archive",
-                        accent: accent
-                    ) {
-                        showArchiveSheet = true
-                    }
-                    .disabled(isWorking)
-                    .popEntrance(delay: 0.14)
-                }
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .animation(SoftIOSMotion.state, value: isWorking)
-        .animation(SoftIOSMotion.state, value: project.isArchived)
-    }
-
-    // MARK: - Stats bar
-
-    @ViewBuilder
-    private var statsBar: some View {
-        GlassEffectContainer(spacing: 14) {
-            HStack(spacing: 10) {
-                if let stats {
-                    StatPill(icon: "doc.on.doc", value: "\(stats.fileCount)", label: "Files")
-                    StatPill(icon: "internaldrive", value: stats.totalSizeText, label: "Size")
-                    if stats.reclaimableBytes > 0 && !project.isArchived {
-                        StatPill(icon: "arrow.down.circle", value: stats.reclaimableText,
-                                 label: "Frees up", accent: .green)
-                    }
-                    footageLinkControl
-                } else {
-                    ProgressView().controlSize(.small)
-                    Text("Calculating…")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-    }
-
-    @ViewBuilder
-    private var footageLinkControl: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "link")
-                .font(.system(size: 14))
-                .foregroundStyle(hasSavedFootageLink ? Theme.accent : .secondary)
-
-            TextField("Footage link", text: $footageLink)
-                .textFieldStyle(.plain)
-                .font(.caption)
-                .frame(minWidth: 170)
-                .disabled(project.isArchived)
-                .onSubmit(saveFootageLink)
-
-            if project.isArchived {
-                if hasSavedFootageLink {
                     Button {
-                        if let u = project.url { queueSavedFootageDownload(projectURL: u) }
-                    } label: {
-                        Image(systemName: "arrow.down.to.line")
-                    }
-                    .buttonStyle(.plain)
-                    .help("Download footage into this project's FOOTAGE folder")
-                    .disabled(downloadViewModel == nil || isWorking)
-                }
-            } else {
-                Button {
-                    saveFootageLink()
+                        runRestore(downloadFootage: hasSavedFootageLink)
                 } label: {
-                    Image(systemName: hasSavedFootageLink ? "checkmark.circle.fill" : "tray.and.arrow.down")
+                    Image(systemName: "icloud.and.arrow.down")
+                        .tactileSymbol()
+                        .headerActionLabel()
+                    }
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.circle)
+                    .help(hasSavedFootageLink ? "Restore and download footage" : "Restore")
+                    .accessibilityLabel(hasSavedFootageLink ? "Restore and download footage" : "Restore")
+                    .disabled(isWorking)
+                } else {
+                    Button {
+                        showArchiveSheet = true
+                } label: {
+                    Image(systemName: "icloud.and.arrow.up")
+                        .tactileSymbol()
+                        .headerActionLabel()
+                    }
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.circle)
+                    .help("Move project to iCloud")
+                    .accessibilityLabel("Move project to iCloud")
+                    .disabled(isWorking)
                 }
-                .buttonStyle(.plain)
-                .help("Save footage link")
-                .disabled(footageLink.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                Button(role: .destructive) {
+                    showDeleteConfirmation = true
+                } label: {
+                    Image(systemName: "trash")
+                        .tactileSymbol()
+                        .headerActionLabel()
+                }
+                .buttonStyle(.glass)
+                .buttonBorderShape(.circle)
+                .tint(.red)
+                .help("Delete project")
+                .accessibilityLabel("Delete project")
+                .disabled(project.isRemoteOnly || isWorking)
+                }
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .glassEffect(.regular, in: .rect(cornerRadius: 10))
     }
 
     // MARK: - Drop overlay
@@ -222,7 +233,7 @@ struct ProjectDetailView: View {
                 .foregroundStyle(accent)
             }
             .overlay(
-                RoundedRectangle(cornerRadius: 12)
+                RoundedRectangle(cornerRadius: Theme.cardRadius)
                     .strokeBorder(accent, style: StrokeStyle(lineWidth: 2, dash: [7]))
                     .padding(8)
             )
@@ -237,7 +248,7 @@ struct ProjectDetailView: View {
             Image(systemName: "icloud.and.arrow.down")
                 .font(.system(size: 48, weight: .light))
                 .foregroundStyle(.secondary)
-            Text("This project is archived in iCloud")
+            Text("This project is stored in iCloud")
                 .font(.headline)
                 .foregroundStyle(.secondary)
             Text("Press Restore to bring it back to your local drive.")
@@ -249,24 +260,44 @@ struct ProjectDetailView: View {
         .padding(40)
     }
 
+    /// Complete projects shared by Windows/Flutter are directories, so their
+    /// real contents can be browsed without restoring them first.
+    private var cloudDirectoryURL: URL? {
+        guard project.isArchived, let root = iCloudStore.shared.rootURL else { return nil }
+        let relativePath: String?
+        if project.isRemoteOnly {
+            relativePath = project.serverArchiveRelativePath
+        } else if let manifestURL = project.manifestURL {
+            relativePath = (try? ProjectManifest.load(from: manifestURL))?.archiveRelativePath
+        } else {
+            relativePath = nil
+        }
+        guard let relativePath else { return nil }
+        let candidate = root.appendingPathComponent(relativePath)
+        guard (try? candidate.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { return nil }
+        return candidate
+    }
+
     @ViewBuilder
     private var messageBanner: some View {
         if let summary = lastSummary, !summary.isEmpty {
             Label(summary.caption, systemImage: "checkmark.circle.fill")
-                .font(.callout.weight(.medium))
-                .foregroundStyle(.white)
+                .font(.callout)
                 .padding(.horizontal, 16).padding(.vertical, 10)
-                .glassEffect(.regular.tint(Theme.accent.opacity(0.85)), in: .capsule)
-                .shadow(color: .black.opacity(0.2), radius: 10, y: 4)
+                .glassEffect(.regular.tint(accent.opacity(0.12)), in: .capsule)
+                .glassEffectTransition(.materialize)
                 .padding(.bottom, 16)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
         } else if let message {
             Label(message, systemImage: isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
-                .font(.callout.weight(.medium))
-                .foregroundStyle(.white)
+                .font(.callout)
+                .foregroundStyle(isError ? .red : .primary)
                 .padding(.horizontal, 16).padding(.vertical, 10)
-                .glassEffect(.regular.tint((isError ? Color.red : Color.green).opacity(0.85)), in: .capsule)
-                .shadow(color: .black.opacity(0.2), radius: 10, y: 4)
+                .glassEffect(
+                    .regular.tint((isError ? Color.red : accent).opacity(0.12)),
+                    in: .capsule
+                )
+                .glassEffectTransition(.materialize)
                 .padding(.bottom, 16)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
         }
@@ -274,15 +305,46 @@ struct ProjectDetailView: View {
 
     // MARK: - Actions
 
+    private func openProject() {
+        guard let projectURL = project.url else { return }
+        let resourceKeys: [URLResourceKey] = [.isRegularFileKey]
+        let enumerator = FileManager.default.enumerator(
+            at: projectURL,
+            includingPropertiesForKeys: resourceKeys,
+            options: [.skipsHiddenFiles]
+        )
+        let projectFile = (enumerator?.allObjects as? [URL])?.first {
+            ["prproj", "drp", "aep"].contains($0.pathExtension.lowercased())
+        }
+        NSWorkspace.shared.open(projectFile ?? projectURL)
+    }
+
+    private func deleteProject() {
+        guard let url = project.url else { return }
+        isWorking = true
+        Task.detached(priority: .userInitiated) {
+            do {
+                try FileManager.default.removeItem(at: url)
+                await MainActor.run {
+                    isWorking = false
+                    store.refresh()
+                }
+            } catch {
+                await finish(error: error.localizedDescription)
+            }
+        }
+    }
+
     private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
         guard !project.isArchived else { return false }
         DropURLLoader.load(providers) { urls in
             guard !urls.isEmpty else { return }
             let summary = FileSorter.sort(fileURLs: urls, into: project)
-            withAnimation(Motion.standard) { lastSummary = summary }
+            withAnimation(reduceMotion ? .none : Motion.state) { lastSummary = summary }
             store.refresh()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) {
-                withAnimation { lastSummary = nil }
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(3.5))
+                withAnimation(reduceMotion ? .none : Motion.feedback) { lastSummary = nil }
             }
         }
         return true
@@ -293,19 +355,19 @@ struct ProjectDetailView: View {
         do {
             destinationURL = try iCloudStore.shared.archiveURL(for: project)
         } catch {
-            withAnimation(Motion.quick) { message = error.localizedDescription; isError = true }
+            withAnimation(reduceMotion ? .none : Motion.feedback) { message = error.localizedDescription; isError = true }
             return
         }
 
         isWorking = true
-        withAnimation(Motion.quick) { message = "Archiving to iCloud…"; isError = false }
+        withAnimation(reduceMotion ? .none : Motion.feedback) { message = "Archiving to iCloud…"; isError = false }
         let project = project
         Task.detached(priority: .userInitiated) {
             do {
                 try ProjectArchiver.archive(project, destinationURL: destinationURL, foldersToRemove: foldersToRemove)
                 let removedNames = foldersToRemove.map(\.folderName).sorted().joined(separator: ", ")
                 let detail = removedNames.isEmpty ? "nothing removed" : "removed: \(removedNames)"
-                await finish(success: "Archived. Valuables in iCloud, \(detail).")
+                await finish(success: "Moved to iCloud. Valuables saved, \(detail).")
                 await patchArchiveOnServer(project: project, destinationURL: destinationURL)
             } catch {
                 await finish(error: error.localizedDescription)
@@ -315,12 +377,12 @@ struct ProjectDetailView: View {
 
     private func runRestore(downloadFootage: Bool = false) {
         isWorking = true
-        withAnimation(Motion.quick) {
+        withAnimation(reduceMotion ? .none : Motion.feedback) {
             message = downloadFootage ? "Restoring from iCloud and queueing footage…" : "Restoring from iCloud…"
             isError = false
         }
         guard let archiveRoot = iCloudStore.shared.rootURL else {
-            withAnimation(Motion.quick) {
+            withAnimation(reduceMotion ? .none : Motion.feedback) {
                 message = iCloudStore.iCloudError.rootNotSelected.localizedDescription
                 isError = true
             }
@@ -333,7 +395,7 @@ struct ProjectDetailView: View {
         if project.isRemoteOnly {
             // Нет локальной папки — восстанавливаем в корень проектов.
             guard let projectsRoot = store.rootURL else {
-                withAnimation(Motion.quick) {
+                withAnimation(reduceMotion ? .none : Motion.feedback) {
                     message = "Projects folder is not selected."
                     isError = true
                 }
@@ -357,7 +419,7 @@ struct ProjectDetailView: View {
             }
         } else {
             guard let manifest = project.manifestURL else {
-                withAnimation(Motion.quick) {
+                withAnimation(reduceMotion ? .none : Motion.feedback) {
                     message = "No manifest URL for this project."
                     isError = true
                 }
@@ -385,25 +447,47 @@ struct ProjectDetailView: View {
         do {
             guard let projectURL = project.url else { return }
             try ProjectMetadataStore.setFootageLink(trimmed, projectURL: projectURL)
-            withAnimation(Motion.quick) {
+            withAnimation(reduceMotion ? .none : Motion.feedback) {
                 hasSavedFootageLink = true
                 message = "Footage link saved."
                 isError = false
             }
             hideMessageAfterDelay()
         } catch {
-            withAnimation(Motion.quick) {
+            withAnimation(reduceMotion ? .none : Motion.feedback) {
                 message = error.localizedDescription
                 isError = true
             }
         }
     }
 
+    /// Queue extra links onto an existing project, downloading each into its
+    /// FOOTAGE folder. Links are recorded in the manifest too, so a later
+    /// archive/restore round trip can fetch them again.
+    private func queueAdditionalFootage(_ links: [String]) {
+        guard let projectURL = project.url, let downloadViewModel else { return }
+        let footage = projectURL.appendingPathComponent(ProjectFolder.footage.folderName, isDirectory: true)
+
+        for link in links {
+            try? ProjectMetadataStore.setFootageLink(link, projectURL: projectURL)
+            downloadViewModel.queueDownload(link: link, into: footage)
+        }
+
+        withAnimation(reduceMotion ? .none : Motion.feedback) {
+            hasSavedFootageLink = true
+            message = links.count == 1
+                ? "Added 1 download."
+                : "Added \(links.count) downloads."
+            isError = false
+        }
+        hideMessageAfterDelay()
+    }
+
     private func queueSavedFootageDownload(projectURL: URL) {
         guard let link = savedFootageLink(), let downloadViewModel else { return }
         let footage = projectURL.appendingPathComponent(ProjectFolder.footage.folderName, isDirectory: true)
         downloadViewModel.queueDownload(link: link, into: footage)
-        withAnimation(Motion.quick) {
+        withAnimation(reduceMotion ? .none : Motion.feedback) {
             message = "Footage download queued."
             isError = false
         }
@@ -437,7 +521,7 @@ struct ProjectDetailView: View {
             downloadViewModel?.queueDownload(link: footageLink, into: footage)
         }
 
-        withAnimation(Motion.quick) {
+        withAnimation(reduceMotion ? .none : Motion.feedback) {
             message = footageLink == nil
                 ? "Restored. Re-download the heavy folders when needed."
                 : "Restored. Footage download queued."
@@ -449,7 +533,7 @@ struct ProjectDetailView: View {
     @MainActor
     private func finish(success: String? = nil, error: String? = nil) {
         isWorking = false
-        withAnimation(Motion.quick) {
+        withAnimation(reduceMotion ? .none : Motion.feedback) {
             message = success ?? error
             isError = (error != nil)
         }
@@ -458,8 +542,9 @@ struct ProjectDetailView: View {
     }
 
     private func hideMessageAfterDelay(expected: String? = nil) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
-            withAnimation {
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(4))
+            withAnimation(reduceMotion ? .none : Motion.state) {
                 if expected == nil || message == expected {
                     message = nil
                 }
@@ -493,16 +578,11 @@ private struct StatPill: View {
     let label: String
     var accent: Color = Theme.accent
 
-    @State private var isHovered = false
-
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: icon)
                 .font(.system(size: 14))
                 .foregroundStyle(accent)
-                .scaleEffect(isHovered ? 1.15 : 1)
-                .animation(SoftIOSMotion.hover, value: isHovered)
-                .symbolEffect(.bounce, value: isHovered)
             VStack(alignment: .leading, spacing: 0) {
                 Text(value)
                     .font(.callout.weight(.semibold))
@@ -514,7 +594,79 @@ private struct StatPill: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 10))
-        .onHover { isHovered = $0 }
+        .background(.quaternary, in: .rect(cornerRadius: Theme.smallRadius))
+    }
+}
+
+// MARK: - Add footage sheet
+
+/// Paste one or more links to download into an existing project's FOOTAGE
+/// folder. One link per line, so a batch copied out of a brief can be pasted
+/// in a single go.
+private struct AddFootageSheet: View {
+    let projectName: String
+    let onAdd: ([String]) -> Void
+    let onCancel: () -> Void
+
+    @State private var text = ""
+    @FocusState private var editorFocused: Bool
+
+    private var links: [String] {
+        text
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 10) {
+                    Image(systemName: "arrow.down.circle.fill")
+                        .font(.title2)
+                        .foregroundStyle(Theme.accent)
+                    Text("Add Footage")
+                        .font(.title3.weight(.semibold))
+                }
+                Text("Paste Google Drive or Dropbox links for \(projectName) — one per line. They download into FOOTAGE.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(20)
+
+            Divider()
+
+            TextEditor(text: $text)
+                .font(.system(size: 12, design: .monospaced))
+                .scrollContentBackground(.hidden)
+                .padding(8)
+                .frame(height: 150)
+                .background(.quaternary.opacity(0.5))
+                .focused($editorFocused)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 14)
+
+            Divider()
+
+            HStack {
+                Text(links.isEmpty ? "No links yet" : "\(links.count) link\(links.count == 1 ? "" : "s")")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .contentTransition(.numericText())
+                    .animation(Motion.continuous, value: links.count)
+                Spacer()
+                Button("Cancel", action: onCancel)
+                    .keyboardShortcut(.cancelAction)
+                Button("Download") { onAdd(links) }
+                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.glassProminent)
+                    .disabled(links.isEmpty)
+            }
+            .padding(20)
+        }
+        .frame(width: 460)
+        .onAppear { editorFocused = true }
     }
 }

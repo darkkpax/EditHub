@@ -23,12 +23,23 @@ struct DownloadPlanItem: Codable, Sendable {
         self.byteSize = byteSize
     }
 
-    var sourceURL: URL {
-        URL(string: sourceURLString)!
+    /// `nil` for a placeholder item that only creates an empty folder (an empty
+    /// Google Drive folder produces one), and for any link the user pasted that
+    /// `URL` cannot parse. Callers must handle the absence rather than force it:
+    /// this used to be a force-unwrap and crashed the app on both paths.
+    var sourceURL: URL? {
+        URL(string: sourceURLString)
+    }
+
+    /// Whether this item is a folder placeholder with nothing to fetch.
+    var isFolderPlaceholder: Bool {
+        sourceURLString.isEmpty
     }
 
     var request: URLRequest {
-        var request = URLRequest(url: sourceURL)
+        // Only reached for items with a real URL; `about:blank` keeps the type
+        // non-optional for the direct-host providers that build their own.
+        var request = URLRequest(url: sourceURL ?? URL(string: "about:blank")!)
         headers?.forEach { key, value in
             request.setValue(value, forHTTPHeaderField: key)
         }
@@ -38,26 +49,55 @@ struct DownloadPlanItem: Codable, Sendable {
 
 struct DropboxDownloader {
     func preparePlan(url: URL) -> [DownloadPlanItem] {
-        let directURL = makeDirectDropboxURL(from: url)
+        // For a shared *folder* (`/scl/fo/…`, old `/sh/…`) Dropbox hands back a
+        // ZIP archive, but `www.dropbox.com` first answers with a "preparing your
+        // download" HTML interstitial. The content host streams the bytes
+        // directly, so make it the primary URL for files and keep the www
+        // variants as fallbacks.
+        //
+        // Shared-*folder* URLs are the exception: they are not valid when their
+        // host is rewritten to dl.dropboxusercontent.com (Dropbox answers 404
+        // for /scl/fo links). The supported flow there is the original www host
+        // with dl=1, which redirects to a short-lived zip_download_get URL.
+        let folderLink = isFolderLink(url)
+        let primaryURL = folderLink
+            ? makeDirectDropboxURL(from: url)
+            : (makeDropboxContentHostURL(from: url) ?? makeDirectDropboxURL(from: url))
+        let displayName = folderLink
+            ? folderArchiveName(from: url)
+            : inferFileName(from: primaryURL)
         return [
             DownloadPlanItem(
-                sourceURLString: directURL.absoluteString,
+                sourceURLString: primaryURL.absoluteString,
                 relativeDestinationPath: nil,
-                displayName: inferFileName(from: directURL).uppercased(),
+                displayName: displayName.uppercased(),
                 headers: nil
             )
         ]
     }
 
     func finalizeDownload(tempFile: URL, response: URLResponse, into directory: URL) throws {
-        let filename = response.suggestedFilename ?? inferFileName(from: response.url ?? tempFile)
+        let isZipPayload = isZipArchive(tempFile: tempFile, response: response)
+        var filename = response.suggestedFilename ?? inferFileName(from: response.url ?? tempFile)
+        if isZipPayload, (filename as NSString).pathExtension.lowercased() != "zip" {
+            filename += ".zip"
+        }
         let destination = directory.appendingPathComponent(filename)
         try? FileManager.default.removeItem(at: destination)
         try FileManager.default.moveItem(at: tempFile, to: destination)
 
-        if destination.pathExtension.lowercased() == "zip" {
+        guard destination.pathExtension.lowercased() == "zip" else { return }
+
+        // A failed extraction must not fail the download: the archive itself is
+        // complete and every file already unpacked is real. Losing a whole
+        // multi-hour, tens-of-gigabytes transfer because `unzip` choked on one
+        // entry is far worse than leaving the ZIP in place for the user to open
+        // themselves, so keep the archive and let the session finish.
+        do {
             try ZipArchiver.unzip(archive: destination, destination: directory)
             try? FileManager.default.removeItem(at: destination)
+        } catch {
+            // Intentionally swallowed — the .zip stays on disk for the user.
         }
     }
 
@@ -68,18 +108,27 @@ struct DropboxDownloader {
     func fallbackDownloadURLs(from current: URL) -> [URL] {
         var candidates: [URL] = []
 
-        var components = URLComponents(url: current, resolvingAgainstBaseURL: false)
-        var items = components?.queryItems ?? []
-        let hadRaw = items.contains { $0.name.lowercased() == "raw" }
-        items.removeAll { ["dl", "raw"].contains($0.name.lowercased()) }
-        items.append(URLQueryItem(name: "raw", value: "1"))
-        components?.queryItems = items
-        if let rawURL = components?.url, rawURL != current || !hadRaw {
-            candidates.append(rawURL)
+        let directURL = makeDirectDropboxURL(from: current)
+        if directURL != current { candidates.append(directURL) }
+
+        if let contentURL = makeDropboxContentHostURL(from: current),
+           contentURL != current,
+           !candidates.contains(contentURL) {
+            candidates.append(contentURL)
         }
 
-        if let contentURL = makeDropboxContentHostURL(from: current), !candidates.contains(contentURL) {
-            candidates.append(contentURL)
+        if !isFolderLink(current) {
+            var components = URLComponents(url: current, resolvingAgainstBaseURL: false)
+            var items = components?.queryItems ?? []
+            let hadRaw = items.contains { $0.name.lowercased() == "raw" }
+            items.removeAll { ["dl", "raw"].contains($0.name.lowercased()) }
+            items.append(URLQueryItem(name: "raw", value: "1"))
+            components?.queryItems = items
+            if let rawURL = components?.url,
+               (rawURL != current || !hadRaw),
+               !candidates.contains(rawURL) {
+                candidates.append(rawURL)
+            }
         }
 
         return candidates
@@ -97,8 +146,33 @@ struct DropboxDownloader {
         guard var components = URLComponents(url: original, resolvingAgainstBaseURL: false) else { return nil }
         components.scheme = "https"
         components.host = "dl.dropboxusercontent.com"
-        components.queryItems = (components.queryItems ?? []).filter { !["dl", "raw"].contains($0.name.lowercased()) }
+        var items = (components.queryItems ?? []).filter { $0.name.lowercased() != "dl" }
+        items.append(URLQueryItem(name: "dl", value: "1"))
+        components.queryItems = items
         return components.url
+    }
+
+    private func isFolderLink(_ url: URL) -> Bool {
+        let path = url.path.lowercased()
+        return path.contains("/scl/fo/") || path.hasPrefix("/sh/")
+    }
+
+    private func folderArchiveName(from url: URL) -> String {
+        let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        if let named = components?.queryItems?.first(where: { $0.name.lowercased() == "dl_filename" })?.value,
+           !named.isEmpty {
+            return named.lowercased().hasSuffix(".zip") ? named : named + ".zip"
+        }
+        let segment = url.path.split(separator: "/").last.map(String.init) ?? ""
+        return (segment.isEmpty ? "dropbox_folder" : segment) + ".zip"
+    }
+
+    private func isZipArchive(tempFile: URL, response: URLResponse) -> Bool {
+        if (response.suggestedFilename as NSString?)?.pathExtension.lowercased() == "zip" { return true }
+        if response.mimeType?.lowercased().contains("zip") == true { return true }
+        guard let handle = try? FileHandle(forReadingFrom: tempFile) else { return false }
+        defer { try? handle.close() }
+        return handle.readData(ofLength: 4).starts(with: [0x50, 0x4B, 0x03, 0x04])
     }
 
     private func inferFileName(from url: URL) -> String {
@@ -508,7 +582,8 @@ func performResumableRangeDownload(
     // If we already have the whole file, there's nothing left to fetch.
     if let knownTotalBytes, knownTotalBytes > 0, existingBytes >= knownTotalBytes {
         let response = HTTPURLResponse(url: originalRequest.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
-        await MainActor.run { progress(1.0, nil, existingBytes, knownTotalBytes) }
+        let completedBytes = existingBytes
+        await MainActor.run { progress(1.0, nil, completedBytes, knownTotalBytes) }
         return (partialFileURL, response)
     }
 
@@ -571,6 +646,10 @@ func performResumableRangeDownload(
             buffer.reserveCapacity(262_144)
             var lastProgressAt = Date()
             var lastProgressBytes = written
+            // Separate from the progress-reporting clock: this only moves when
+            // bytes actually arrive, so it can detect a silent stall. Shared
+            // with the watchdog task below, hence the lock-guarded box.
+            let activityClock = TransferActivityClock()
 
             func flush() throws {
                 if !buffer.isEmpty {
@@ -579,32 +658,70 @@ func performResumableRangeDownload(
                 }
             }
 
-            for try await byte in byteStream {
-                // Honour pause/cancel between chunks.
-                if let control {
-                    if control.isCancelledFlag {
+            // A dead connection that never closes would otherwise hang here for
+            // `timeoutIntervalForResource` (a full day) while the UI keeps
+            // showing the last known speed — exactly the "speed moves but the
+            // bar is frozen" failure. Watch the byte counter and cancel the
+            // session so the retry loop reconnects; the partial file on disk
+            // means that retry continues rather than restarts.
+            let stallWatchdog = Task { [weak control] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: 5_000_000_000)
+                    if Task.isCancelled { return }
+                    if control?.isPausedFlag == true {
+                        activityClock.touch()
+                        continue
+                    }
+                    if DownloadRetryPolicy.hasStalled(
+                        bytesSinceLastCheck: 0,
+                        secondsSinceProgress: activityClock.secondsSinceLastActivity
+                    ) {
+                        session.invalidateAndCancel()
+                        return
+                    }
+                }
+            }
+            defer { stallWatchdog.cancel() }
+
+            // A mid-stream throw (the connection dropping) must not discard the
+            // bytes sitting in `buffer`: they are already downloaded, and losing
+            // up to 256 KB per attempt is what made a resume restart from zero
+            // when the drop happened before the first flush.
+            do {
+                for try await byte in byteStream {
+                    // Honour pause/cancel between chunks.
+                    if let control {
+                        if control.isCancelledFlag {
+                            try flush()
+                            throw CancellationError()
+                        }
+                        await control.waitWhilePaused()
+                    }
+
+                    buffer.append(byte)
+                    if buffer.count >= 262_144 {
+                        written += Int64(buffer.count)
                         try flush()
-                        throw CancellationError()
-                    }
-                    await control.waitWhilePaused()
-                }
 
-                buffer.append(byte)
-                if buffer.count >= 262_144 {
-                    written += Int64(buffer.count)
-                    try flush()
-
-                    let now = Date()
-                    let elapsed = now.timeIntervalSince(lastProgressAt)
-                    if elapsed > 0.2 {
-                        let speed = Double(written - lastProgressBytes) / elapsed
-                        let frac = totalBytes.map { $0 > 0 ? Double(written) / Double($0) : 0 }
-                        let snapshotWritten = written
-                        await MainActor.run { progress(frac ?? 0, speed, snapshotWritten, totalBytes) }
-                        lastProgressAt = now
-                        lastProgressBytes = written
+                        let now = Date()
+                        activityClock.touch()
+                        let elapsed = now.timeIntervalSince(lastProgressAt)
+                        if elapsed > 0.2 {
+                            let speed = Double(written - lastProgressBytes) / elapsed
+                            let frac = totalBytes.map { $0 > 0 ? Double(written) / Double($0) : 0 }
+                            let snapshotWritten = written
+                            await MainActor.run { progress(frac ?? 0, speed, snapshotWritten, totalBytes) }
+                            lastProgressAt = now
+                            lastProgressBytes = written
+                        }
                     }
                 }
+            } catch {
+                // Persist whatever is buffered before propagating, so the retry
+                // resumes from these bytes instead of re-fetching them.
+                written += Int64(buffer.count)
+                try? flush()
+                throw error
             }
 
             written += Int64(buffer.count)

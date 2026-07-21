@@ -1,15 +1,57 @@
+import AppKit
 import SwiftUI
+
+enum AppSection: String, CaseIterable, Identifiable {
+    case projects
+    case settings
+
+    var id: Self { self }
+    var title: String { rawValue.capitalized }
+    var systemImage: String { self == .projects ? "folder" : "gearshape" }
+}
+
+struct AppSectionControl: View {
+    @Binding var selection: AppSection
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(AppSection.allCases) { section in
+                let isSelected = selection == section
+                Button {
+                    selection = section
+                } label: {
+                    Image(systemName: section.systemImage)
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(.primary)
+                        .tactileSymbol()
+                        .frame(width: 34, height: 28)
+                        .background(isSelected ? Color.primary.opacity(0.08) : .clear, in: .circle)
+                        .contentShape(.circle)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(section.title)
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
+                .help(section.title)
+            }
+        }
+        .padding(2)
+        .glassEffect(.regular.interactive(), in: .capsule)
+    }
+}
 
 struct RootSplitView: View {
     @Environment(ProjectStore.self) private var store
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    @State private var section: AppSection = .projects
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var selectedProject: Project?
     @State private var downloadViewModel = DownloadViewModel()
-    @State private var showCreatePopover = false
+    @State private var showCreateProject = false
     @State private var iCloud = iCloudStore.shared
     @State private var isImporting = false
     @State private var importAlert: ImportAlert?
-    @Namespace private var createMorphNamespace
+    @Namespace private var createNamespace
 
     struct ImportAlert: Identifiable {
         let id = UUID()
@@ -19,113 +61,56 @@ struct RootSplitView: View {
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
-            projectsLayout
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            projectsView
 
-            if showCreatePopover {
-                Color.clear
-                    .contentShape(Rectangle())
-                    .ignoresSafeArea()
-                    .onTapGesture { dismissCreate() }
-                    .zIndex(20)
-            }
+            if section == .projects {
+                if showCreateProject {
+                    Button(action: dismissCreate) { Color.clear }
+                        .buttonStyle(.plain)
+                        .ignoresSafeArea()
+                }
 
-            createProjectSurface
-                .padding(.trailing, 22)
-                .padding(.bottom, 22)
-                .zIndex(30)
-        }
-        .background(WindowBackdrop())
-        .alert(item: $importAlert) { alert in
-            Alert(
-                title: Text(alert.title),
-                message: Text(alert.message),
-                dismissButton: .default(Text("OK"))
-            )
-        }
-    }
-
-    private func dismissCreate() {
-        withAnimation(SoftIOSMotion.morph) {
-            showCreatePopover = false
-        }
-    }
-
-    private var createProjectSurface: some View {
-        ZStack(alignment: .bottomTrailing) {
-            GlassEffectContainer(spacing: 28) {
-                VStack(alignment: .trailing, spacing: 12) {
-                    if showCreatePopover {
+                VStack(alignment: .trailing, spacing: 4) {
+                    if showCreateProject {
                         CreateAndDownloadPopover(
                             downloadViewModel: downloadViewModel,
                             onCreated: { project in
-                                withAnimation(SoftIOSMotion.entry) {
-                                    store.refresh()
-                                    selectedProject = project
-                                }
+                                store.refresh()
+                                selectedProject = project
                             },
                             onDismiss: dismissCreate,
-                            morphNamespace: createMorphNamespace
+                            morphNamespace: createNamespace
                         )
-                        .frame(width: 390)
+                        .frame(width: 320)
+                        // Grow out of / collapse back into the plus button.
                         .transition(
-                            .asymmetric(
-                                insertion: .scale(scale: 0.86, anchor: .bottomTrailing)
-                                    .combined(with: .opacity),
-                                removal: .scale(scale: 0.92, anchor: .bottomTrailing)
-                                    .combined(with: .opacity)
-                            )
+                            .scale(scale: 0.05, anchor: .bottomTrailing)
+                            .combined(with: .opacity)
                         )
                     }
 
-                    Button {
-                        withAnimation(SoftIOSMotion.morph) {
-                            showCreatePopover.toggle()
-                        }
-                    } label: {
-                        ZStack {
-                            if showCreatePopover {
-                                Circle()
-                                    .fill(Theme.accent)
-                                    .glassEffect(
-                                        .regular.tint(Theme.accent.opacity(0.95)).interactive(),
-                                        in: .circle
-                                    )
-                            } else {
-                                Circle()
-                                    .fill(Theme.accent)
-                                    .glassEffect(
-                                        .regular.tint(Theme.accent.opacity(0.95)).interactive(),
-                                        in: .circle
-                                    )
-                            }
-
-                            Image(systemName: "plus")
-                                .font(.system(size: 24, weight: .regular))
-                                .foregroundStyle(Color.white)
-                                .rotationEffect(.degrees(showCreatePopover ? 45 : 0))
-                                .zIndex(2)
-                        }
-                        .frame(width: 56, height: 56)
-                        .contentShape(Circle())
-                        .shadow(color: Theme.accent.opacity(0.32), radius: 18, y: 8)
-                    }
-                    .buttonStyle(.plain)
-                    .help(showCreatePopover ? "Close" : "New project")
+                    createProjectButton(glassID: "create")
                 }
+                .padding(.trailing, 24)
+                .padding(.bottom, 24)
             }
-            .zIndex(1)
+        }
+        .ignoresSafeArea(.container, edges: .top)
+        .animation(reduceMotion ? .none : Motion.state, value: section)
+        .task {
+            if iCloud.isAvailable, store.rootURL != nil {
+                importArchives(showResult: false)
+            }
+        }
+        .alert(item: $importAlert) { alert in
+            Alert(title: Text(alert.title), message: Text(alert.message))
         }
     }
 
-    private var importAction: (() -> Void)? {
-        guard iCloud.isAvailable, store.rootURL != nil else { return nil }
-        return importArchives
-    }
-
-    private var projectsLayout: some View {
-        HSplitView {
+    private var projectsView: some View {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             ProjectListView(
+                section: $section,
                 selectedProject: $selectedProject,
                 downloadViewModel: downloadViewModel,
                 onChooseRoot: chooseRoot,
@@ -135,52 +120,120 @@ struct RootSplitView: View {
                 iCloudStatusIcon: iCloud.isAvailable ? "icloud.fill" : "icloud",
                 iCloudStatusColor: iCloud.isAvailable ? .green : .secondary,
                 onImportArchives: importAction,
-                isImporting: isImporting
+                isImporting: isImporting,
+                onToggleSidebar: toggleSidebar
             )
-            .ignoresSafeArea()
-            .frame(minWidth: 300, idealWidth: 340, maxWidth: 460)
-
-            Group {
-                if let project = selectedProject {
-                    ProjectDetailView(project: project, downloadViewModel: downloadViewModel)
-                        .id(project.id)
-                } else {
-                    Color.clear
-                }
+            .navigationSplitViewColumnWidth(min: 300, ideal: 300, max: 300)
+        } detail: {
+            if section == .settings {
+                SettingsView(downloadViewModel: downloadViewModel)
+                    .transition(.opacity)
+            } else if let project = selectedProject {
+                ProjectDetailView(project: project, downloadViewModel: downloadViewModel)
+                    .id(project.id)
+                    .transition(.opacity.combined(with: .move(edge: .trailing)))
+            } else {
+                ContentUnavailableView(
+                    "Select a Project",
+                    systemImage: "folder",
+                    description: Text("Choose a project in the sidebar or create a new one.")
+                )
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .frame(minWidth: 380, maxWidth: .infinity)
+        }
+        .navigationSplitViewStyle(.balanced)
+        .animation(reduceMotion ? .none : Motion.reveal, value: selectedProject?.id)
+        .animation(reduceMotion ? .none : Motion.state, value: section)
+    }
+
+    private func dismissCreate() {
+        withAnimation(reduceMotion ? .none : Motion.morph) {
+            showCreateProject = false
         }
     }
 
-    // MARK: - Root status
+    private func toggleSidebar() {
+        withAnimation(reduceMotion ? .none : Motion.state) {
+            columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
+        }
+    }
+
+    private func createProjectButton(glassID: String) -> some View {
+        Button {
+            withAnimation(reduceMotion ? .none : Motion.morph) {
+                showCreateProject.toggle()
+            }
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 21, weight: .semibold))
+                .foregroundStyle(.white)
+                .tactileSymbol()
+                .rotationEffect(.degrees(showCreateProject ? 45 : 0))
+                .frame(width: 50, height: 50)
+                .contentShape(.circle)
+                .glassEffect(
+                    .regular.tint(Theme.accent).interactive(),
+                    in: .circle
+                )
+                .glassEffectID(glassID, in: createNamespace)
+                .glassEffectTransition(.matchedGeometry)
+        }
+        .buttonStyle(.plain)
+        .shadow(color: Theme.accent.opacity(0.3), radius: 15, y: 7)
+        .help(showCreateProject ? "Close" : "New project")
+    }
 
     private var rootStatusIcon: String {
-        if store.rootURL == nil { return "questionmark.folder" }
+        guard store.rootURL != nil else { return "questionmark.folder" }
         return store.hasYearFolders ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
     }
 
     private var rootStatusColor: Color {
-        if store.rootURL == nil { return .secondary }
+        guard store.rootURL != nil else { return .secondary }
         return store.hasYearFolders ? .green : .orange
     }
 
-    // MARK: - Actions
+    private var importAction: (() -> Void)? {
+        guard iCloud.isAvailable, store.rootURL != nil else { return nil }
+        return { importArchives() }
+    }
 
     private func chooseRoot() {
+        chooseFolder(
+            message: "Select the folder that contains your year folders.",
+            directoryURL: store.rootURL
+        ) { try store.setRoot($0) }
+    }
+
+    private func chooseICloud() {
+        chooseFolder(
+            message: "Select iCloud Drive or its EditHub folder. EditHub will read EditHub/auth.json automatically.",
+            directoryURL: iCloud.rootURL
+        ) {
+            try iCloud.setRoot($0)
+            if store.rootURL != nil { importArchives(showResult: false) }
+        }
+    }
+
+    private func chooseFolder(
+        message: String,
+        directoryURL: URL?,
+        action: (URL) throws -> Void
+    ) {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
         panel.canCreateDirectories = true
         panel.prompt = "Choose"
-        panel.message = "Select the folder that contains your year folders."
-        panel.directoryURL = store.rootURL
+        panel.message = message
+        panel.directoryURL = directoryURL
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        try? store.setRoot(url)
+        do { try action(url) } catch {
+            importAlert = ImportAlert(title: "Folder Error", message: error.localizedDescription)
+        }
     }
 
-    private func importArchives() {
+    private func importArchives(showResult: Bool = true) {
         guard let iCloudRoot = iCloud.rootURL, let projectsRoot = store.rootURL else { return }
         isImporting = true
         Task.detached(priority: .userInitiated) {
@@ -188,47 +241,26 @@ struct RootSplitView: View {
             await MainActor.run {
                 isImporting = false
                 store.refresh()
-                let r = result ?? ICloudArchiveImporter.ImportResult()
-                importAlert = ImportAlert(
-                    title: r.imported > 0 ? "Import complete" : "Nothing new",
-                    message: r.errors.isEmpty
-                        ? r.summary
-                        : r.summary + "\n\nErrors:\n" + r.errors.prefix(5).joined(separator: "\n")
-                )
+                let result = result ?? ICloudArchiveImporter.ImportResult()
+                if showResult {
+                    importAlert = ImportAlert(
+                        title: result.imported > 0 ? "Import Complete" : "Nothing New",
+                        message: result.errors.isEmpty
+                            ? result.summary
+                            : result.summary + "\n\n" + result.errors.prefix(5).joined(separator: "\n")
+                    )
+                }
             }
         }
     }
-
-    private func chooseICloud() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.canCreateDirectories = true
-        panel.prompt = "Choose"
-        panel.message = "Select a folder inside iCloud Drive for project archives (e.g. iCloud Drive/EditHub)."
-        panel.directoryURL = iCloud.rootURL ?? FileManager.default
-            .url(forUbiquityContainerIdentifier: nil)?
-            .deletingLastPathComponent()
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        do {
-            try iCloud.setRoot(url)
-            if AuthStore.shared.isLoggedIn { store.syncWithServer() }
-        } catch {}
-    }
 }
 
-
-// MARK: - Empty detail
-
 struct EmptyDetail: View {
-    var icon: String = "square.dashed"
-    var title: String = ""
+    var icon = "square.dashed"
+    var title = ""
     let message: String
 
-    init(text: String) {
-        self.message = text
-    }
+    init(text: String) { message = text }
 
     init(icon: String, title: String, message: String) {
         self.icon = icon
@@ -237,10 +269,10 @@ struct EmptyDetail: View {
     }
 
     var body: some View {
-        ContentUnavailableView {
-            Label(title.isEmpty ? "Nothing Here" : title, systemImage: icon)
-        } description: {
-            Text(message)
-        }
+        ContentUnavailableView(
+            title.isEmpty ? "Nothing Here" : title,
+            systemImage: icon,
+            description: Text(message)
+        )
     }
 }

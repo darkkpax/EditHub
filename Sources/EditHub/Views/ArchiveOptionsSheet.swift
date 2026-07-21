@@ -3,6 +3,7 @@ import SwiftUI
 /// Shown before archiving: the user picks which heavy folders to delete locally
 /// (all non-empty ones by default). Valuable folders always go to iCloud.
 struct ArchiveOptionsSheet: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let project: Project
     let onArchive: (Set<ProjectFolder>) -> Void
     let onCancel: () -> Void
@@ -37,7 +38,8 @@ struct ArchiveOptionsSheet: View {
                 Image(systemName: "archivebox.fill")
                     .font(.title2)
                     .foregroundStyle(Theme.accent)
-                Text("Archive “\(project.name)”")
+                    .symbolEffect(.bounce.byLayer, value: didLoad)
+                Text("Move “\(project.name)” to iCloud")
                     .font(.title3.weight(.semibold))
             }
             Text("Valuable folders (Music, Voice, B-Roll, SFX, Subs) are saved to iCloud. Choose which heavy folders to delete locally — they're easy to re-download.")
@@ -57,6 +59,7 @@ struct ArchiveOptionsSheet: View {
                         Image(systemName: folder.systemImage)
                             .frame(width: 20)
                             .foregroundStyle(.secondary)
+                            .symbolEffect(.bounce.byLayer, value: toRemove.contains(folder))
                         Text(folder.folderName)
                         Spacer()
                         Text(sizeText(for: folder))
@@ -86,11 +89,11 @@ struct ArchiveOptionsSheet: View {
             Spacer()
             Button("Cancel", action: onCancel)
                 .keyboardShortcut(.cancelAction)
-            Button("Archive") {
+            Button("Move to iCloud") {
                 onArchive(toRemove)
             }
             .keyboardShortcut(.defaultAction)
-            .buttonStyle(.glassProminent)
+            .buttonStyle(.borderedProminent)
         }
         .padding(20)
     }
@@ -99,7 +102,9 @@ struct ArchiveOptionsSheet: View {
         Binding(
             get: { toRemove.contains(folder) },
             set: { isOn in
-                if isOn { toRemove.insert(folder) } else { toRemove.remove(folder) }
+                withAnimation(reduceMotion ? .none : Motion.feedback) {
+                    if isOn { toRemove.insert(folder) } else { toRemove.remove(folder) }
+                }
             }
         )
     }

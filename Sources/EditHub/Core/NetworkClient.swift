@@ -1,7 +1,7 @@
 import Foundation
 
 /// Типизированный HTTP-клиент для EditHub API.
-/// Берёт базовый URL из UserDefaults (настраивается в LoginView) и JWT из AuthStore.
+/// Берёт базовый URL из UserDefaults (импортируется из iCloud auth.json) и JWT из AuthStore.
 @MainActor
 @Observable
 final class NetworkClient {

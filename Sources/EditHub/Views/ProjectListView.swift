@@ -3,6 +3,7 @@ import UniformTypeIdentifiers
 
 struct ProjectListView: View {
     @Environment(ProjectStore.self) private var store
+    @Binding var section: AppSection
     @Binding var selectedProject: Project?
     var downloadViewModel: DownloadViewModel?
     var externalSearch: String = ""
@@ -14,6 +15,9 @@ struct ProjectListView: View {
     var iCloudStatusColor: Color = .secondary
     var onImportArchives: (() -> Void)?
     var isImporting: Bool = false
+    var onToggleSidebar: (() -> Void)?
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var searchText = ""
     @State private var dropTargetID: Project.ID?
@@ -31,6 +35,12 @@ struct ProjectListView: View {
         externalSearch.isEmpty ? searchText : externalSearch
     }
 
+    /// Every animation in this view routes through here so Reduce Motion is
+    /// honoured in one place rather than at each of the ~20 call sites.
+    private func motion(_ animation: Animation) -> Animation? {
+        reduceMotion ? nil : animation
+    }
+
     private var groups: [(key: String, projects: [Project])] {
         store.grouped.compactMap { group in
             let filtered = group.projects.filter { project in
@@ -46,13 +56,14 @@ struct ProjectListView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ZStack(alignment: .bottom) {
-                FrostedHeaderStrip()
-                searchBar
-                    .padding(.horizontal, 14)
-                    .padding(.bottom, 10)
+            // The window uses `.fullSizeContentView`, so the title bar overlaps
+            // this view. Subtract whatever the safe area already reserves —
+            // the detail pane derives its header the same way, which is what
+            // keeps the two columns' chrome on a single baseline.
+            GeometryReader { geometry in
+                sidebarHeader(topInset: max(0, Theme.headerTopInset - geometry.safeAreaInsets.top))
             }
-            .frame(height: 116)
+            .frame(height: Theme.headerHeight)
 
             if isSelecting && !selectedIDs.isEmpty {
                 selectionToolbar
@@ -68,9 +79,9 @@ struct ProjectListView: View {
         }
         .background(DefaultLiquidGlassBackground())
         .overlay(alignment: .bottom) { summaryToast }
-        .animation(Motion.standard, value: lastSummary?.caption)
-        .animation(SoftIOSMotion.state, value: isSelecting)
-        .animation(SoftIOSMotion.state, value: selectedIDs.isEmpty)
+        .animation(motion(Motion.standard), value: lastSummary?.caption)
+        .animation(motion(SoftIOSMotion.state), value: isSelecting)
+        .animation(motion(SoftIOSMotion.state), value: selectedIDs.isEmpty)
         .sheet(isPresented: $showMultiArchiveSheet) {
             MultiArchiveSheet(projects: selectedProjects) { foldersToRemove in
                 showMultiArchiveSheet = false
@@ -91,10 +102,40 @@ struct ProjectListView: View {
         }
     }
 
-    // MARK: - Search bar
+    // MARK: - Sidebar Header
+
+    private func sidebarHeader(topInset: CGFloat) -> some View {
+        VStack(spacing: Theme.controlSpacing) {
+            HStack(spacing: Theme.controlSpacing) {
+                // Traffic lights own the left of the title bar; the section
+                // control sits to their right, trailing-aligned.
+                Spacer(minLength: 72)
+
+                AppSectionControl(selection: $section)
+            }
+            .frame(height: Theme.controlHeight)
+            .padding(.horizontal, Theme.headerHorizontalPadding)
+
+            searchBar
+                .padding(.horizontal, Theme.headerHorizontalPadding)
+                .padding(.bottom, Theme.headerTopInset)
+        }
+        .padding(.top, topInset)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(
+            // The panel behind this already lays down `.ultraThinMaterial`;
+            // stacking a second translucent layer on top of it is what Apple
+            // warns against — legibility drops and the blur reads muddy. Use a
+            // thin opaque scrim instead, which still separates the header from
+            // the scrolling list underneath.
+            Rectangle()
+                .fill(.background.secondary)
+                .ignoresSafeArea(edges: .top)
+        )
+    }
 
     private var searchBar: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 7) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
             TextField("Search projects", text: $searchText)
@@ -107,85 +148,13 @@ struct ProjectListView: View {
                         .foregroundStyle(.tertiary)
                 }
                 .buttonStyle(.plain)
-            }
-
-            // Select toggle
-            Button {
-                withAnimation(SoftIOSMotion.state) {
-                    isSelecting.toggle()
-                    if !isSelecting { selectedIDs.removeAll() }
-                }
-            } label: {
-                Image(systemName: isSelecting ? "checkmark.circle.fill" : "checkmark.circle")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(isSelecting ? Theme.accent : .secondary)
-                    .frame(width: 26, height: 26)
-                    .symbolEffect(.bounce, value: isSelecting)
-            }
-            .buttonStyle(.plain)
-            .help(isSelecting ? "Exit selection" : "Select multiple")
-
-            Button {
-                onChooseRoot?()
-            } label: {
-                Image(systemName: rootStatusIcon)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(rootStatusColor)
-                    .frame(width: 26, height: 26)
-            }
-            .buttonStyle(.plain)
-            .help("Choose root folder")
-            .disabled(onChooseRoot == nil)
-
-            Button {
-                onChooseICloud?()
-            } label: {
-                Image(systemName: iCloudStatusIcon)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(iCloudStatusColor)
-                    .frame(width: 26, height: 26)
-            }
-            .buttonStyle(.plain)
-            .help("Choose iCloud archive folder")
-            .disabled(onChooseICloud == nil)
-
-            if let onImport = onImportArchives {
-                Button {
-                    onImport()
-                } label: {
-                    if isImporting {
-                        ProgressView()
-                            .scaleEffect(0.6)
-                            .frame(width: 26, height: 26)
-                    } else {
-                        Image(systemName: "square.and.arrow.down")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                            .frame(width: 26, height: 26)
-                    }
-                }
-                .buttonStyle(.plain)
-                .help("Import archives from iCloud")
-                .disabled(isImporting)
-            }
-
-            Button {
-                showAccountPopover.toggle()
-            } label: {
-                Image(systemName: auth.isLoggedIn ? "person.crop.circle.fill" : "person.crop.circle")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(auth.isLoggedIn ? Color.accentColor : .secondary)
-                    .frame(width: 26, height: 26)
-            }
-            .buttonStyle(.plain)
-            .help(auth.isLoggedIn ? "Account" : "Sign in")
-            .popover(isPresented: $showAccountPopover, arrowEdge: .bottom) {
-                accountPopover
+                .help("Clear search")
+                .accessibilityLabel("Clear search")
             }
         }
         .font(.callout)
-        .padding(.horizontal, 14)
-        .frame(height: 38)
+        .padding(.horizontal, 12)
+        .frame(height: Theme.controlHeight)
         .glassEffect(.regular.interactive(), in: .capsule)
     }
 
@@ -195,13 +164,25 @@ struct ProjectListView: View {
         HStack(spacing: 0) {
             // Counter
             HStack(spacing: 6) {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(Theme.accent)
-                    .symbolEffect(.bounce.byLayer, value: selectedIDs.count)
+                Button {
+                    withAnimation(motion(SoftIOSMotion.state)) {
+                        isSelecting = false
+                        selectedIDs.removeAll()
+                    }
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                        .tactileSymbol()
+                        .contentShape(.circle)
+                }
+                .buttonStyle(.plain)
+                .help("Exit selection")
+                .accessibilityLabel("Exit selection")
+
                 Text(selectedIDs.isEmpty ? "Select items" : "\(selectedIDs.count) selected")
                     .font(.callout.weight(.semibold))
                     .contentTransition(.numericText())
-                    .animation(SoftIOSMotion.text, value: selectedIDs.count)
+                    .animation(motion(SoftIOSMotion.text), value: selectedIDs.count)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -302,7 +283,7 @@ struct ProjectListView: View {
                         .contentShape(Rectangle())
                         .onTapGesture {
                             if isSelecting {
-                                withAnimation(SoftIOSMotion.bouncySlide) {
+                                withAnimation(motion(SoftIOSMotion.bouncySlide)) {
                                     if selectedIDs.contains(project.id) {
                                         selectedIDs.remove(project.id)
                                     } else {
@@ -310,7 +291,7 @@ struct ProjectListView: View {
                                     }
                                 }
                             } else {
-                                withAnimation(SoftIOSMotion.state) {
+                                withAnimation(motion(SoftIOSMotion.state)) {
                                     selectedProject = project
                                 }
                             }
@@ -337,8 +318,8 @@ struct ProjectListView: View {
         .scrollContentBackground(.hidden)
         .scrollEdgeEffectStyle(.soft, for: .all)
         .contentMargins(.bottom, 92, for: .scrollContent)
-        .animation(SoftIOSMotion.entry, value: store.projects.count)
-        .animation(SoftIOSMotion.bouncySlide, value: selectedIDs)
+        .animation(motion(SoftIOSMotion.entry), value: store.projects.count)
+        .animation(motion(SoftIOSMotion.bouncySlide), value: selectedIDs)
     }
 
     // MARK: - Helpers
@@ -352,7 +333,13 @@ struct ProjectListView: View {
         else { return nil }
         return RowDownload(
             fraction: vm.progressFraction,
-            caption: vm.isPaused ? "Paused" : vm.progressCaption
+            fileName: vm.progressCaption,
+            isPaused: vm.isPaused,
+            speedText: vm.downloadSpeedText,
+            downloadedText: vm.downloadedSizeText,
+            totalText: vm.totalSizeText,
+            remainingText: vm.remainingTimeText,
+            queuedCount: vm.queue.count
         )
     }
 
@@ -367,7 +354,7 @@ struct ProjectListView: View {
 
     private func performMultiDelete() {
         let toDelete = selectedProjects
-        withAnimation(SoftIOSMotion.state) {
+        withAnimation(motion(SoftIOSMotion.state)) {
             selectedIDs.removeAll()
             isSelecting = false
             if let sel = selectedProject, toDelete.contains(where: { $0.id == sel.id }) {
@@ -385,7 +372,7 @@ struct ProjectListView: View {
 
     private func performMultiArchive(foldersToRemove: Set<ProjectFolder>) {
         let toArchive = selectedProjects.filter { !$0.isArchived && !$0.isRemoteOnly }
-        withAnimation(SoftIOSMotion.state) {
+        withAnimation(motion(SoftIOSMotion.state)) {
             selectedIDs.removeAll()
             isSelecting = false
         }
@@ -421,9 +408,22 @@ struct ProjectListView: View {
 
     @ViewBuilder
     private func projectContextMenu(_ project: Project) -> some View {
+        // The only entry point into multi-select now that the search field is
+        // a plain search field again.
+        Button {
+            withAnimation(motion(SoftIOSMotion.state)) {
+                isSelecting = true
+                selectedIDs.insert(project.id)
+            }
+        } label: {
+            Label("Select Multiple", systemImage: "checkmark.circle")
+        }
+
+        Divider()
+
         if !project.isRemoteOnly {
             Button {
-                withAnimation(SoftIOSMotion.state) { selectedProject = project }
+                withAnimation(motion(SoftIOSMotion.state)) { selectedProject = project }
                 if let u = project.url { NSWorkspace.shared.open(u) }
             } label: {
                 Label("Reveal in Finder", systemImage: "arrow.up.forward.app")
@@ -434,13 +434,13 @@ struct ProjectListView: View {
 
         if project.isArchived || project.isRemoteOnly {
             Button {
-                withAnimation(SoftIOSMotion.state) { selectedProject = project }
+                withAnimation(motion(SoftIOSMotion.state)) { selectedProject = project }
             } label: {
                 Label("Restore from iCloud", systemImage: "arrow.down.circle")
             }
         } else {
             Button {
-                withAnimation(SoftIOSMotion.state) { selectedProject = project }
+                withAnimation(motion(SoftIOSMotion.state)) { selectedProject = project }
                 // открываем sheet архивации через selectedProject — detail view покажет его
             } label: {
                 Label("Archive to iCloud", systemImage: "archivebox")
@@ -489,7 +489,19 @@ struct ProjectListView: View {
             .padding(20)
             .frame(width: 220)
         } else {
-            LoginView(onSuccess: { showAccountPopover = false })
+            VStack(spacing: 12) {
+                Image(systemName: "icloud.slash")
+                    .font(.system(size: 32, weight: .light))
+                    .foregroundStyle(.secondary)
+                Text("Not signed in")
+                    .font(.headline)
+                Text("Please connect your iCloud account in Settings.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(20)
+            .frame(width: 220)
         }
     }
 
@@ -500,7 +512,7 @@ struct ProjectListView: View {
         DropURLLoader.load(providers) { urls in
             guard !urls.isEmpty else { return }
             let summary = FileSorter.sort(fileURLs: urls, into: project)
-            withAnimation(Motion.standard) {
+            withAnimation(motion(Motion.standard)) {
                 lastSummary = summary
                 selectedProject = project
             }
@@ -610,7 +622,74 @@ private struct MultiArchiveSheet: View {
 
 struct RowDownload {
     let fraction: Double
-    let caption: String
+    /// Name of the file currently transferring. Shown only in the hover
+    /// popover — the row itself stays on the percentage.
+    let fileName: String
+    let isPaused: Bool
+    let speedText: String
+    let downloadedText: String
+    let totalText: String
+    let remainingText: String
+    let queuedCount: Int
+
+    var percentText: String {
+        "\(Int((max(0, min(1, fraction)) * 100).rounded()))%"
+    }
+}
+
+/// Detailed transfer readout shown when the pointer rests on a downloading row.
+/// The row stays quiet (a bar and a percentage); everything else lives here.
+private struct DownloadDetailPopover: View {
+    let download: RowDownload
+    let projectName: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(projectName)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(download.fileName)
+                    .font(.callout.weight(.semibold))
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            ProgressView(value: download.fraction)
+                .progressViewStyle(.linear)
+                .tint(Theme.accent)
+
+            Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 6) {
+                GridRow {
+                    detail("Progress", download.percentText)
+                    detail("Speed", download.isPaused ? "Paused" : download.speedText)
+                }
+                GridRow {
+                    detail("Downloaded", "\(download.downloadedText) / \(download.totalText)")
+                    detail("Remaining", download.isPaused ? "--" : download.remainingText)
+                }
+                if download.queuedCount > 0 {
+                    GridRow {
+                        detail("In queue", "\(download.queuedCount) more")
+                    }
+                }
+            }
+        }
+        .padding(14)
+        .frame(width: 288)
+    }
+
+    private func detail(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.caption.weight(.medium).monospacedDigit())
+                .contentTransition(.numericText())
+        }
+        .gridColumnAlignment(.leading)
+    }
 }
 
 private struct ProjectRow: View {
@@ -620,9 +699,12 @@ private struct ProjectRow: View {
     var isSelecting: Bool = false
     var isSelected: Bool = false
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var thumb = ProjectThumbnailLoader()
     @State private var isHovered = false
     @State private var isPressed = false
+    @State private var showDownloadDetail = false
+    @State private var hoverDetailTask: Task<Void, Never>?
 
     private var accent: Color { project.isArchived ? .orange : Theme.accent }
 
@@ -644,13 +726,13 @@ private struct ProjectRow: View {
                     }
                 }
                 .scaleEffect(isSelected ? 1.08 : 1)
-                .animation(SoftIOSMotion.bouncySlide, value: isSelected)
+                .animation(reduceMotion ? nil : SoftIOSMotion.bouncySlide, value: isSelected)
                 .transition(.scale(scale: 0.6).combined(with: .opacity))
             }
 
             cover
                 .scaleEffect(isSelected ? 0.92 : 1)
-                .animation(SoftIOSMotion.bouncySlide, value: isSelected)
+                .animation(reduceMotion ? nil : SoftIOSMotion.bouncySlide, value: isSelected)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(project.name)
@@ -677,13 +759,39 @@ private struct ProjectRow: View {
             Spacer(minLength: 0)
         }
         .padding(.vertical, 3)
-        .animation(Motion.standard, value: download != nil)
-        .animation(SoftIOSMotion.state, value: isSelecting)
+        .contentShape(Rectangle())
+        .animation(reduceMotion ? nil : Motion.standard, value: download != nil)
+        .animation(reduceMotion ? nil : SoftIOSMotion.state, value: isSelecting)
         .scaleEffect(isPressed ? 0.97 : 1)
-        .onHover { isHovered = $0 }
+        .onHover { hovering in
+            isHovered = hovering
+            // Only a downloading row has anything extra to show, and a short
+            // delay keeps the popover from flashing as the pointer crosses the
+            // list on its way somewhere else.
+            guard download != nil else {
+                showDownloadDetail = false
+                return
+            }
+            hoverDetailTask?.cancel()
+            guard hovering else {
+                showDownloadDetail = false
+                return
+            }
+            hoverDetailTask = Task {
+                try? await Task.sleep(for: .milliseconds(450))
+                guard !Task.isCancelled else { return }
+                showDownloadDetail = true
+            }
+        }
+        .onDisappear { hoverDetailTask?.cancel() }
+        .popover(isPresented: $showDownloadDetail, arrowEdge: .trailing) {
+            if let download {
+                DownloadDetailPopover(download: download, projectName: project.name)
+            }
+        }
         .overlay {
             if isDropTarget {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: Theme.smallRadius, style: .continuous)
                     .strokeBorder(accent, style: StrokeStyle(lineWidth: 2, dash: [5]))
                     .padding(-4)
             }
@@ -691,23 +799,28 @@ private struct ProjectRow: View {
         .onAppear { thumb.load(for: project) }
     }
 
+    /// The row deliberately shows only a bar and a percentage: filenames are
+    /// long, change constantly, and made the list jitter. The full readout is
+    /// one hover away in `DownloadDetailPopover`.
     private func downloadProgress(_ download: RowDownload) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
+        HStack(spacing: 7) {
             ProgressView(value: download.fraction)
                 .progressViewStyle(.linear)
                 .tint(Theme.accent)
-                .frame(maxWidth: 160)
-            Text(download.caption)
-                .font(.caption2)
+                .frame(maxWidth: 130)
+
+            Text(download.isPaused ? "Paused" : download.percentText)
+                .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
-                .lineLimit(1)
+                .contentTransition(.numericText())
+                .animation(reduceMotion ? nil : SoftIOSMotion.text, value: download.fraction)
         }
         .padding(.top, 1)
     }
 
     private var cover: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
+            RoundedRectangle(cornerRadius: Theme.smallRadius, style: .continuous)
                 .fill(accent.opacity(0.15))
             if let image = thumb.image {
                 Image(nsImage: image)
@@ -721,6 +834,6 @@ private struct ProjectRow: View {
             }
         }
         .frame(width: 40, height: 40)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: Theme.smallRadius, style: .continuous))
     }
 }

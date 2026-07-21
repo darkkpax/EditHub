@@ -59,6 +59,7 @@ enum ICloudArchiveImporter {
 
     struct ArchiveEntry {
         var zipURL: URL
+        var isDirectory: Bool
         var year: String
         var month: String       // как на диске: "October", "OCTOBER" и т.п.
         var name: String        // имя без .zip
@@ -66,45 +67,45 @@ enum ICloudArchiveImporter {
         var relativePath: String
     }
 
-    /// Найти все zip-архивы в корне, принимая обе раскладки.
+    /// Finds both Mac ZIP archives and Flutter/Windows directory archives.
+    /// Flutter stores them below `edithub/Videos/<year>/<month>/<project>`.
     static func findArchives(in root: URL) -> [ArchiveEntry] {
         let fm = FileManager.default
         var result: [ArchiveEntry] = []
 
-        // Уровень 1: папки года (4 цифры) или "Archive"
-        guard let topDirs = try? fm.contentsOfDirectory(
-            at: root, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
-        ) else { return [] }
+        let candidates = [
+            root,
+            root.appendingPathComponent("Archive", isDirectory: true),
+            root.appendingPathComponent("Videos", isDirectory: true),
+            root.appendingPathComponent("EditHub/Videos", isDirectory: true),
+            root.appendingPathComponent("Edit Hub/Videos", isDirectory: true),
+            root.appendingPathComponent("edithub/Videos", isDirectory: true)
+        ]
 
-        for top in topDirs where top.hasDirectoryPath {
-            let topName = top.lastPathComponent
+        var visited = Set<String>()
+        for archiveRoot in candidates {
+            let path = archiveRoot.standardizedFileURL.path
+            guard visited.insert(path).inserted,
+                  fm.fileExists(atPath: path),
+                  let yearDirs = try? fm.contentsOfDirectory(
+                    at: archiveRoot,
+                    includingPropertiesForKeys: [.isDirectoryKey],
+                    options: [.skipsHiddenFiles]
+                  ) else { continue }
 
-            if topName == "Archive" {
-                // Новая схема: Archive/ГОД/Месяц/ИМЯ.zip
-                result += scanYearLevel(root: top, archivePrefix: "Archive", iCloudRoot: root)
-            } else if isYear(topName) {
-                // Старая схема: ГОД/Месяц/ИМЯ.zip
-                result += scanMonthLevel(yearURL: top, year: topName, archivePrefix: topName, iCloudRoot: root)
+            let prefix = relativePath(of: archiveRoot, from: root)
+            for yearURL in yearDirs where yearURL.hasDirectoryPath && isYear(yearURL.lastPathComponent) {
+                let year = yearURL.lastPathComponent
+                let yearPrefix = prefix.isEmpty ? year : "\(prefix)/\(year)"
+                result += scanMonthLevel(
+                    yearURL: yearURL,
+                    year: year,
+                    archivePrefix: yearPrefix,
+                    iCloudRoot: root
+                )
             }
         }
-        return result
-    }
-
-    private static func scanYearLevel(root: URL, archivePrefix: String, iCloudRoot: URL) -> [ArchiveEntry] {
-        let fm = FileManager.default
-        var result: [ArchiveEntry] = []
-        guard let yearDirs = try? fm.contentsOfDirectory(
-            at: root, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
-        ) else { return [] }
-        for yearURL in yearDirs where yearURL.hasDirectoryPath {
-            let year = yearURL.lastPathComponent
-            guard isYear(year) else { continue }
-            result += scanMonthLevel(
-                yearURL: yearURL, year: year,
-                archivePrefix: "\(archivePrefix)/\(year)", iCloudRoot: iCloudRoot
-            )
-        }
-        return result
+        return Dictionary(grouping: result, by: \.relativePath).compactMap(\.value.first)
     }
 
     private static func scanMonthLevel(
@@ -120,15 +121,24 @@ enum ICloudArchiveImporter {
             // Принимаем только папки, которые MonthKey распознаёт как месяц.
             guard MonthKey.number(from: month) != nil else { continue }
 
-            guard let zips = try? fm.contentsOfDirectory(
-                at: monthURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
+            guard let archives = try? fm.contentsOfDirectory(
+                at: monthURL,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
             ) else { continue }
 
-            for zip in zips where zip.pathExtension.lowercased() == "zip" {
-                let name = zip.deletingPathExtension().lastPathComponent
-                let rel  = "\(archivePrefix)/\(month)/\(zip.lastPathComponent)"
+            for archive in archives {
+                let isDirectory = archive.hasDirectoryPath
+                guard isDirectory || archive.pathExtension.lowercased() == "zip" else { continue }
+                let name = isDirectory ? archive.lastPathComponent : archive.deletingPathExtension().lastPathComponent
+                let rel  = "\(archivePrefix)/\(month)/\(archive.lastPathComponent)"
                 result.append(ArchiveEntry(
-                    zipURL: zip, year: year, month: month, name: name, relativePath: rel
+                    zipURL: archive,
+                    isDirectory: isDirectory,
+                    year: year,
+                    month: month,
+                    name: name,
+                    relativePath: rel
                 ))
             }
         }
@@ -150,21 +160,27 @@ enum ICloudArchiveImporter {
 
         let manifestURL = projectURL.appendingPathComponent("\(entry.name).edithub")
 
-        // Уже импортировано — манифест есть.
+        // Existing active local projects win over an archived iCloud copy.
         if fm.fileExists(atPath: manifestURL.path) { return false }
+        if fm.fileExists(atPath: projectURL.path) { return false }
 
         // Создаём папку (и год/месяц если нет).
         try fm.createDirectory(at: projectURL, withIntermediateDirectories: true)
 
         // Достаём размер архива (может быть placeholder — тогда 0).
-        let size = (try? entry.zipURL.resourceValues(
+        let size = entry.isDirectory ? 0 : (try? entry.zipURL.resourceValues(
             forKeys: [.fileSizeKey]
         ).fileSize).map(Int64.init) ?? 0
 
-        // Генерируем projectId и сохраняем метаданные.
-        let metadata = ProjectMetadataStore.load(projectURL: projectURL)
-        let metaURL  = ProjectMetadataStore.url(for: projectURL)
-        try? metadata.write(to: metaURL)
+        // Preserve Flutter identity and footage links when the archive is a folder.
+        var metadata = ProjectMetadataStore.load(projectURL: projectURL)
+        if entry.isDirectory,
+           let data = try? Data(contentsOf: entry.zipURL.appendingPathComponent(".edithub.json")),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            if let id = json["id"] as? String, !id.isEmpty { metadata.projectId = id }
+            metadata.footageLinks = (json["footageUrls"] as? [String]) ?? metadata.footageLinks
+        }
+        try? ProjectMetadataStore.save(metadata, projectURL: projectURL)
 
         // Пишем манифест — проект считается законсервированным.
         let manifest = ProjectManifest(
@@ -176,7 +192,7 @@ enum ICloudArchiveImporter {
             archiveRelativePath: entry.relativePath,
             removedHeavyFolders: [],
             archiveByteCount: size > 0 ? size : nil,
-            footageLinks: nil
+            footageLinks: metadata.footageLinks
         )
         try manifest.write(to: manifestURL)
 
@@ -187,5 +203,12 @@ enum ICloudArchiveImporter {
 
     private static func isYear(_ name: String) -> Bool {
         name.count == 4 && name.allSatisfy(\.isNumber)
+    }
+
+    private static func relativePath(of child: URL, from root: URL) -> String {
+        let rootPath = root.standardizedFileURL.path
+        let childPath = child.standardizedFileURL.path
+        guard childPath != rootPath, childPath.hasPrefix(rootPath + "/") else { return "" }
+        return String(childPath.dropFirst(rootPath.count + 1))
     }
 }

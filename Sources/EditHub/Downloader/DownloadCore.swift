@@ -252,9 +252,48 @@ enum DownloadRetryPolicy {
         max(runningMax, min(1, max(0, latest)))
     }
 
+    /// How long a transfer may deliver zero bytes before we treat the connection
+    /// as dead and force a retry.
+    ///
+    /// `URLSessionConfiguration.timeoutIntervalForRequest` does not cover this
+    /// case once `waitsForConnectivity` is set: when the network changes under a
+    /// live connection (a VPN toggling, Wi-Fi roaming) the socket can stay open
+    /// while no data ever arrives, and the session waits out
+    /// `timeoutIntervalForResource` — up to a day — without failing. Watching the
+    /// byte counter ourselves is the only reliable way to notice.
+    static let stallTimeoutSeconds: TimeInterval = 90
+
+    /// Whether a transfer has stalled: no new bytes for `stallTimeoutSeconds`.
+    /// - bytesSinceLastCheck: bytes received since the previous evaluation.
+    /// - secondsSinceProgress: seconds elapsed since the byte counter last moved.
+    static func hasStalled(bytesSinceLastCheck: Int64, secondsSinceProgress: TimeInterval) -> Bool {
+        guard bytesSinceLastCheck <= 0 else { return false }
+        return secondsSinceProgress >= stallTimeoutSeconds
+    }
+
     /// Merges a per-file fraction into the overall multi-file progress, clamped
     /// just below 1.0 so the bar only reaches 100% on real completion.
     static func mergedProgress(fileBaseProgress: Double, fileSlice: Double, fileFraction: Double) -> Double {
         min(0.99, fileBaseProgress + (fileSlice * fileFraction))
+    }
+}
+
+/// Tracks when a transfer last made progress, shared between the byte-consuming
+/// loop and the stall watchdog running concurrently with it.
+final class TransferActivityClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var lastActivity = Date()
+
+    func touch() {
+        lock.lock()
+        lastActivity = Date()
+        lock.unlock()
+    }
+
+    var secondsSinceLastActivity: TimeInterval {
+        lock.lock()
+        let timestamp = lastActivity
+        lock.unlock()
+        return Date().timeIntervalSince(timestamp)
     }
 }
