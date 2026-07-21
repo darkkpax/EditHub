@@ -9,12 +9,12 @@ class ShellService {
   Future<void> openPath(String path, {bool selectFile = false}) async {
     if (!Platform.isWindows) {
       throw UnsupportedError(
-        'Открытие проводника поддерживается только в Windows.',
+        'Opening Explorer is only supported on Windows.',
       );
     }
     final type = FileSystemEntity.typeSync(path, followLinks: true);
     if (type == FileSystemEntityType.notFound) {
-      throw FileSystemException('Путь больше не существует.', path);
+      throw FileSystemException('That path no longer exists.', path);
     }
     if (selectFile) {
       // /select is Explorer-specific (reveals + highlights the file).

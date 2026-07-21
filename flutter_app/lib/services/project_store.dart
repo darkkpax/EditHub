@@ -310,7 +310,7 @@ class ProjectStore {
     );
     if (Directory(folder).existsSync()) {
       throw FileSystemException(
-        'Проект с таким именем уже существует.',
+        'A project with that name already exists.',
         folder,
       );
     }

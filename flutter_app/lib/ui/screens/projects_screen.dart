@@ -191,7 +191,7 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen>
                         height: 56,
                         decoration: BoxDecoration(
                           color: AppColors.accent,
-                          borderRadius: BorderRadius.circular(28),
+                          borderRadius: BorderRadius.circular(AppColors.radius),
                           boxShadow: [
                             BoxShadow(
                               color: AppColors.accent.withValues(alpha: .34),

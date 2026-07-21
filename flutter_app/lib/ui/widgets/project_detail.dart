@@ -45,7 +45,7 @@ class ProjectHeader extends StatelessWidget {
               decoration: BoxDecoration(
                 color: (archived ? AppColors.warn : AppColors.accent)
                     .withValues(alpha: .14),
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(AppColors.radiusSm),
               ),
               child: Icon(
                 archived ? Icons.cloud_outlined : Icons.folder_rounded,
@@ -300,7 +300,7 @@ class _PrimaryAction extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 17),
       decoration: BoxDecoration(
         color: AppColors.accent,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(AppColors.radiusSm),
         boxShadow: [
           BoxShadow(
             color: AppColors.accent.withValues(alpha: .25),
@@ -355,7 +355,7 @@ class _CircleAction extends StatelessWidget {
           width: 40,
           height: 40,
           decoration: BoxDecoration(
-            color: const Color(0x08FFFFFF),
+            color: AppColors.fill1,
             shape: BoxShape.circle,
             border: Border.all(
               color: danger
@@ -394,7 +394,7 @@ class _StatusBadge extends StatelessWidget {
       decoration: BoxDecoration(
         color: color.withValues(alpha: .11),
         border: Border.all(color: color.withValues(alpha: .25)),
-        borderRadius: BorderRadius.circular(99),
+        borderRadius: BorderRadius.circular(AppColors.radiusPill),
       ),
       child: Text(
         label,
@@ -526,11 +526,11 @@ class _FolderTile extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
         decoration: BoxDecoration(
-          color: isFolder ? const Color(0x12FFFFFF) : Colors.transparent,
+          color: isFolder ? AppColors.fill2 : Colors.transparent,
           border: Border.all(
-            color: isFolder ? AppColors.sep : const Color(0x0AFFFFFF),
+            color: isFolder ? AppColors.sep : AppColors.fill1,
           ),
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(AppColors.radiusSm),
         ),
         child: Row(
           children: [
@@ -542,7 +542,7 @@ class _FolderTile extends StatelessWidget {
                 color: isFolder
                     ? AppColors.accent.withValues(alpha: .16)
                     : Colors.transparent,
-                borderRadius: BorderRadius.circular(9),
+                borderRadius: BorderRadius.circular(AppColors.radiusXs),
               ),
               child: Icon(
                 isFolder

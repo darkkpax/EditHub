@@ -158,18 +158,18 @@ class _Field extends StatelessWidget {
       decoration: InputDecoration(
         hintText: hint,
         filled: true,
-        fillColor: const Color(0x14FFFFFF),
+        fillColor: AppColors.fill2,
         contentPadding: const EdgeInsets.symmetric(horizontal: 14),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(AppColors.radiusSm),
           borderSide: BorderSide.none,
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(AppColors.radiusSm),
           borderSide: BorderSide.none,
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(AppColors.radiusSm),
           borderSide: const BorderSide(color: AppColors.accent, width: 1.4),
         ),
       ),
@@ -190,7 +190,7 @@ class _CreateButton extends StatelessWidget {
       alignment: Alignment.center,
       decoration: BoxDecoration(
         color: AppColors.accent,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(AppColors.radiusSm),
       ),
       child: loading
           ? const SizedBox(
@@ -228,8 +228,8 @@ class _EditorToggle extends StatelessWidget {
         height: _kFieldHeight,
         padding: const EdgeInsets.all(9),
         decoration: BoxDecoration(
-          color: const Color(0x14FFFFFF),
-          borderRadius: BorderRadius.circular(12),
+          color: AppColors.fill2,
+          borderRadius: BorderRadius.circular(AppColors.radiusSm),
           border: Border.all(color: Colors.white.withValues(alpha: .16)),
         ),
         child: SvgPicture.asset(

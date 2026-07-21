@@ -30,10 +30,17 @@ class DownloadCancelledException implements Exception {
   const DownloadCancelledException();
 }
 
+/// Wraps an HTTP failure that retrying cannot fix (404, 403, 401…), so the
+/// retry loop can tell it apart from a transient error and stop immediately.
+class _PermanentHttpException implements Exception {
+  const _PermanentHttpException(this.inner);
+  final Object inner;
+}
+
 String normalizeDownloadUrl(String rawUrl) {
   final uri = Uri.tryParse(rawUrl.trim());
   if (uri == null || !uri.hasScheme || uri.host.isEmpty) {
-    throw FormatException('Некорректная ссылка: $rawUrl');
+    throw FormatException('Invalid link: $rawUrl');
   }
 
   if (uri.host == 'drive.google.com') {
@@ -47,10 +54,23 @@ String normalizeDownloadUrl(String rawUrl) {
     }
   }
 
-  if (uri.host == 'dropbox.com' || uri.host == 'www.dropbox.com') {
+  if (uri.host == 'dropbox.com' ||
+      uri.host == 'www.dropbox.com' ||
+      uri.host == 'dl.dropboxusercontent.com') {
+    // Dropbox changed from /s/ to /scl/fo/ and /sh/ for new shared links.
+    // Both formats need dl=1, and the modern format needs rlkey to persist.
     final params = {...uri.queryParameters, 'dl': '1'};
-    // ponytail: Dropbox changed from /s/ to /scl/fo/ and /sh/ for new shared links.
-    // Both formats need dl=1, but modern format requires rlkey to persist.
+
+    // A shared *folder* must keep the www host: Dropbox answers 404 when a
+    // /scl/fo (or legacy /sh) link is served from dl.dropboxusercontent.com.
+    // The supported flow is www + dl=1, which redirects to a short-lived
+    // zip_download_get URL. Only single *files* may use the content host.
+    if (isDropboxFolderLink(uri)) {
+      return uri
+          .replace(host: 'www.dropbox.com', queryParameters: params)
+          .toString();
+    }
+
     return uri
         .replace(
           host: 'dl.dropboxusercontent.com',
@@ -61,12 +81,19 @@ String normalizeDownloadUrl(String rawUrl) {
   return uri.toString();
 }
 
+/// Whether a Dropbox URL points at a shared folder rather than a single file.
+bool isDropboxFolderLink(Uri uri) {
+  final path = uri.path.toLowerCase();
+  return path.contains('/scl/fo/') || path.startsWith('/sh/');
+}
+
 class DownloaderService {
   DownloaderService({
     http.Client? client,
     this.maxAttempts = 5,
     this.retryBaseDelay = const Duration(seconds: 2),
     this.maxConcurrent = 4,
+    this.stallTimeout = const Duration(seconds: 90),
     this.googleDriveAuth,
   }) : _client = client ?? http.Client();
 
@@ -74,13 +101,29 @@ class DownloaderService {
   final int maxAttempts;
   final Duration retryBaseDelay;
 
+  /// How long the body stream may deliver zero bytes before the attempt is
+  /// treated as stalled and retried.
+  final Duration stallTimeout;
+
   /// Cap on files downloading at once so a many-file project doesn't open
   /// dozens of sockets and starve the disk/network.
   final int maxConcurrent;
   final GoogleDriveAuthService? googleDriveAuth;
-  final Set<String> _cancelledProjects = {};
 
-  void cancel(String projectId) => _cancelledProjects.add(projectId);
+  /// Run counter per project. `downloadAll` claims a run id at entry and only
+  /// that run reacts to a cancel — so a cancel meant for a finished run cannot
+  /// leak into the next one, and two concurrent runs for the same project
+  /// cancel independently. (Previously a shared `Set<String>` was cleared in a
+  /// `finally`, which dropped a cancel that arrived while a run was ending.)
+  int _runCounter = 0;
+  final Map<String, int> _activeRuns = {};
+  final Set<int> _cancelledRuns = {};
+
+  /// Cancel the download run currently in flight for [projectId], if any.
+  void cancel(String projectId) {
+    final runId = _activeRuns[projectId];
+    if (runId != null) _cancelledRuns.add(runId);
+  }
 
   Future<List<File>> downloadAll({
     required String projectId,
@@ -88,7 +131,8 @@ class DownloaderService {
     required String destinationFolder,
     void Function(DownloadProgress progress)? onProgress,
   }) async {
-    _cancelledProjects.remove(projectId);
+    final runId = ++_runCounter;
+    _activeRuns[projectId] = runId;
     await Directory(destinationFolder).create(recursive: true);
     try {
       final jobs = <({String rawUrl, String? driveId, String? relativePath})>[];
@@ -119,6 +163,7 @@ class DownloaderService {
           final job = jobs[index];
           results[index] = await _downloadOne(
             projectId: projectId,
+            runId: runId,
             rawUrl: job.rawUrl,
             normalizedUrl: job.driveId == null
                 ? null
@@ -139,12 +184,16 @@ class DownloaderService {
       ]);
       return results.whereType<File>().toList();
     } finally {
-      _cancelledProjects.remove(projectId);
+      // Retire this run. A cancel that arrives later targets whatever run is
+      // active then — not this finished one.
+      if (_activeRuns[projectId] == runId) _activeRuns.remove(projectId);
+      _cancelledRuns.remove(runId);
     }
   }
 
   Future<File> _downloadOne({
     required String projectId,
+    required int runId,
     required String rawUrl,
     required String destinationFolder,
     String? normalizedUrl,
@@ -156,7 +205,7 @@ class DownloaderService {
     Object? lastError;
 
     for (var attempt = 1; attempt <= maxAttempts; attempt++) {
-      _throwIfCancelled(projectId);
+      _throwIfCancelled(runId);
       try {
         final fallbackName =
             preferredName ?? _filenameFromUri(Uri.parse(normalized));
@@ -185,11 +234,15 @@ class DownloaderService {
             'HTTP ${response.statusCode}',
             uri: Uri.parse(normalized),
           );
-          if (!_retryable(response.statusCode)) {
-            throw error;
-          }
-          lastError = error;
           await response.stream.drain<void>();
+          lastError = error;
+          // A permanent status (404, 403, 401…) will not become valid by asking
+          // again. Wrap it so the catch-all below re-throws immediately instead
+          // of burning every remaining attempt — the previous `throw error`
+          // landed in that same catch and was retried like any other failure.
+          if (!_retryable(response.statusCode)) {
+            throw _PermanentHttpException(error);
+          }
           throw error;
         }
 
@@ -205,8 +258,20 @@ class DownloaderService {
         var downloaded = append ? existing : 0;
         final total = _totalBytes(response, downloaded);
         try {
-          await for (final chunk in response.stream) {
-            _throwIfCancelled(projectId);
+          // The `.timeout` above only bounds the response *headers*. Once the
+          // stream is open a stalled connection can deliver nothing forever
+          // (a VPN toggling, Wi-Fi roaming) and the download hangs silently.
+          // Bound the gap between chunks so the retry loop can reconnect —
+          // the .part file on disk means it resumes rather than restarts.
+          final stream = response.stream.timeout(
+            stallTimeout,
+            // Named `eventSink` to avoid shadowing the file `sink` above.
+            onTimeout: (eventSink) => eventSink.addError(
+              TimeoutException('No data for ${stallTimeout.inSeconds}s'),
+            ),
+          );
+          await for (final chunk in stream) {
+            _throwIfCancelled(runId);
             sink.add(chunk);
             downloaded += chunk.length;
             onProgress?.call(
@@ -242,6 +307,9 @@ class DownloaderService {
         return finalFile;
       } on DownloadCancelledException {
         rethrow;
+      } on _PermanentHttpException catch (permanent) {
+        // Not worth another attempt — surface the underlying HTTP error as-is.
+        throw permanent.inner;
       } catch (error) {
         lastError = error;
         if (attempt == maxAttempts) break;
@@ -249,11 +317,11 @@ class DownloaderService {
         await Future<void>.delayed(retryBaseDelay * multiplier);
       }
     }
-    throw Exception('Не удалось скачать файл: $lastError');
+    throw Exception('Could not download file: $lastError');
   }
 
-  void _throwIfCancelled(String projectId) {
-    if (_cancelledProjects.contains(projectId)) {
+  void _throwIfCancelled(int runId) {
+    if (_cancelledRuns.contains(runId)) {
       throw const DownloadCancelledException();
     }
   }

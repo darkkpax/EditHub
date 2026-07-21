@@ -249,7 +249,7 @@ class _FolderRow extends StatelessWidget {
                     vertical: 10,
                   ),
                   decoration: BoxDecoration(
-                    color: const Color(0x12FFFFFF),
+                    color: AppColors.fill2,
                     borderRadius: BorderRadius.circular(AppColors.radiusSm),
                     border: Border.all(color: AppColors.sep),
                   ),

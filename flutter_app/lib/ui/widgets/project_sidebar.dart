@@ -76,7 +76,7 @@ class ProjectSidebar extends StatelessWidget {
             left: 0,
             right: 0,
             bottom: 0,
-            child: ColoredBox(color: Color(0x06FFFFFF)),
+            child: ColoredBox(color: AppColors.fill1),
           ),
           Positioned.fill(
             child: groups.isEmpty
@@ -175,7 +175,7 @@ class _ProjectRow extends StatelessWidget {
           color: selected
               ? AppColors.accent.withValues(alpha: .2)
               : Colors.transparent,
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(AppColors.radiusXs),
           border: Border.all(
             color: selected
                 ? AppColors.accent.withValues(alpha: .12)
@@ -194,7 +194,7 @@ class _ProjectRow extends StatelessWidget {
                             ? AppColors.warn
                             : AppColors.accent)
                         .withValues(alpha: selected ? .2 : .14),
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(AppColors.radiusXs),
               ),
               child: Icon(
                 project.status == ProjectStatus.archive

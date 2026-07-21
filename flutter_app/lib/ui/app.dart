@@ -240,9 +240,9 @@ class _TrayItemState extends State<_TrayItem> {
             color: _hover
                 ? (widget.danger
                       ? AppColors.bad.withValues(alpha: .18)
-                      : const Color(0x1FFFFFFF))
+                      : AppColors.fill3)
                 : Colors.transparent,
-            borderRadius: BorderRadius.circular(7),
+            borderRadius: BorderRadius.circular(AppColors.radiusXs),
           ),
           child: Row(
             children: [

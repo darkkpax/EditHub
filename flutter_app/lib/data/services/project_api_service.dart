@@ -37,7 +37,7 @@ class ProjectApiService {
       }),
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      var message = 'Сервер вернул HTTP ${response.statusCode}.';
+      var message = 'Server returned HTTP ${response.statusCode}.';
       try {
         message =
             (jsonDecode(response.body) as Map<String, dynamic>)['error']

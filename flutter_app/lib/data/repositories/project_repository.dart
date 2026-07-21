@@ -34,7 +34,7 @@ class ProjectRepository {
         cleanName == '.' ||
         cleanName == '..' ||
         RegExp(r'[<>:"/\\|?*\x00-\x1F]').hasMatch(cleanName)) {
-      throw ArgumentError.value(name, 'name', 'Недопустимое имя проекта.');
+      throw ArgumentError.value(name, 'name', 'Invalid project name.');
     }
     final cleanUrls = urls
         .map((url) => url.trim())

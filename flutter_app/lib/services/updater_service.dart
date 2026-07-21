@@ -123,7 +123,7 @@ class _UpdateDialogState extends State<_UpdateDialog> {
     } catch (error) {
       if (mounted) {
         setState(() {
-          _error = 'Не удалось обновить: $error';
+          _error = 'Update failed: $error';
           _progress = null;
         });
       }
@@ -191,14 +191,14 @@ class _UpdateDialogState extends State<_UpdateDialog> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           const Text(
-                            'Доступно обновление',
+                            'Update available',
                             style: TextStyle(
                               fontSize: 15,
                               fontWeight: FontWeight.w700,
                             ),
                           ),
                           Text(
-                            'Версия ${widget.version}',
+                            'Version ${widget.version}',
                             style: const TextStyle(
                               color: AppColors.dim,
                               fontSize: 12,
@@ -223,7 +223,7 @@ class _UpdateDialogState extends State<_UpdateDialog> {
                     child: LinearProgressIndicator(
                       value: _progress == 0 ? null : _progress,
                       minHeight: 8,
-                      backgroundColor: const Color(0x22FFFFFF),
+                      backgroundColor: AppColors.fill4,
                     ),
                   )
                 else
@@ -233,14 +233,14 @@ class _UpdateDialogState extends State<_UpdateDialog> {
                       TextButton(
                         onPressed: () => Navigator.of(context).pop(),
                         child: const Text(
-                          'Позже',
+                          'Later',
                           style: TextStyle(color: AppColors.dim),
                         ),
                       ),
                       const SizedBox(width: 8),
                       FilledButton(
                         onPressed: _install,
-                        child: const Text('Установить'),
+                        child: const Text('Install'),
                       ),
                     ],
                   ),

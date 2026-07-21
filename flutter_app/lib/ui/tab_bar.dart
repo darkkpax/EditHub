@@ -85,7 +85,7 @@ class _TabButton extends StatelessWidget {
           margin: const EdgeInsets.symmetric(horizontal: 2),
           decoration: BoxDecoration(
             color: selected ? AppColors.card2 : Colors.transparent,
-            borderRadius: BorderRadius.circular(13),
+            borderRadius: BorderRadius.circular(AppColors.radiusSm),
           ),
           child: AnimatedScale(
             scale: selected ? 1.08 : 1,
