@@ -123,6 +123,9 @@ struct RootSplitView: View {
                 isImporting: isImporting,
                 onToggleSidebar: toggleSidebar
             )
+            // The sidebar is fixed-width and always visible; the system's
+            // collapse control is dead weight in the title bar.
+            .toolbar(removing: .sidebarToggle)
             .navigationSplitViewColumnWidth(min: 300, ideal: 300, max: 300)
         } detail: {
             if section == .settings {

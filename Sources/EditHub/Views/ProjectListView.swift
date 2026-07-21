@@ -55,27 +55,32 @@ struct ProjectListView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            // The window uses `.fullSizeContentView`, so the title bar overlaps
-            // this view. Subtract whatever the safe area already reserves —
-            // the detail pane derives its header the same way, which is what
-            // keeps the two columns' chrome on a single baseline.
-            GeometryReader { geometry in
-                sidebarHeader(topInset: max(0, Theme.headerTopInset - geometry.safeAreaInsets.top))
-            }
-            .frame(height: Theme.headerHeight)
-
-            if isSelecting && !selectedIDs.isEmpty {
-                selectionToolbar
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 10)
-                    .transition(.asymmetric(
-                        insertion: .move(edge: .top).combined(with: .opacity),
-                        removal: .move(edge: .top).combined(with: .opacity)
-                    ))
-            }
-
+        // The header floats *over* the list, matching the detail pane: rows
+        // scroll underneath it and blur through the glass rather than stopping
+        // at a hard edge. A VStack would stack them and make that impossible.
+        ZStack(alignment: .top) {
             content
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    // Reserve the header's height so the first row starts below
+                    // it, while still letting scrolled content pass under.
+                    Color.clear.frame(height: Theme.headerHeight)
+                }
+
+            VStack(spacing: 0) {
+                sidebarHeader
+                    .frame(height: Theme.headerHeight)
+
+                if isSelecting && !selectedIDs.isEmpty {
+                    selectionToolbar
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 10)
+                        .transition(.asymmetric(
+                            insertion: .move(edge: .top).combined(with: .opacity),
+                            removal: .move(edge: .top).combined(with: .opacity)
+                        ))
+                }
+            }
+            .zIndex(2)
         }
         .background(DefaultLiquidGlassBackground())
         .overlay(alignment: .bottom) { summaryToast }
@@ -104,7 +109,7 @@ struct ProjectListView: View {
 
     // MARK: - Sidebar Header
 
-    private func sidebarHeader(topInset: CGFloat) -> some View {
+    private var sidebarHeader: some View {
         VStack(spacing: Theme.controlSpacing) {
             HStack(spacing: Theme.controlSpacing) {
                 // Traffic lights own the left of the title bar; the section
@@ -118,20 +123,14 @@ struct ProjectListView: View {
 
             searchBar
                 .padding(.horizontal, Theme.headerHorizontalPadding)
-                .padding(.bottom, Theme.headerTopInset)
         }
-        .padding(.top, topInset)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(
-            // The panel behind this already lays down `.ultraThinMaterial`;
-            // stacking a second translucent layer on top of it is what Apple
-            // warns against — legibility drops and the blur reads muddy. Use a
-            // thin opaque scrim instead, which still separates the header from
-            // the scrolling list underneath.
-            Rectangle()
-                .fill(.background.secondary)
-                .ignoresSafeArea(edges: .top)
-        )
+        // Same three modifiers, in the same order, as the detail pane's header
+        // — that is what puts the two columns' chrome on one baseline. Any
+        // extra inset here is exactly how they drifted apart before.
+        .padding(.top, Theme.headerTopInset)
+        .frame(maxWidth: .infinity, minHeight: Theme.headerHeight, alignment: .top)
+        .glassEffect(.regular, in: .rect(cornerRadius: 0))
+        .ignoresSafeArea(edges: .top)
     }
 
     private var searchBar: some View {
@@ -740,20 +739,16 @@ private struct ProjectRow: View {
                     .lineLimit(1)
                 if let download {
                     downloadProgress(download)
-                } else {
-                    HStack(spacing: 6) {
-                        Text("\(project.year) · \(project.month)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        if project.isArchived {
-                            Text("Archived")
-                                .font(.caption2.weight(.semibold))
-                                .foregroundStyle(.orange)
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 1)
-                                .background(Color.orange.opacity(0.16), in: Capsule())
-                        }
-                    }
+                } else if project.isArchived {
+                    // The year/month already labels the section this row sits
+                    // in, so repeating it on every card is noise. Only the
+                    // archived state is worth a second line.
+                    Text("Archived")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.orange)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Color.orange.opacity(0.16), in: Capsule())
                 }
             }
             Spacer(minLength: 0)
