@@ -117,30 +117,34 @@ struct ProjectListView: View {
     // MARK: - Sidebar Header
 
     private var sidebarHeader: some View {
-        VStack(spacing: Theme.controlSpacing) {
+        // The capsule is title-bar chrome, so it is positioned from the window's
+        // top edge — centred on the traffic lights, at the opposite end of their
+        // row. The search field then fills the rest of the header. Laying this
+        // out as one `VStack` under `headerTopInset` is what put the capsule 6pt
+        // below the lights and left it reading as a stray floating pill.
+        VStack(spacing: 0) {
             HStack(spacing: Theme.controlSpacing) {
-                // Traffic lights own the first ~72pt of the title bar; the
-                // control sits directly after them rather than being pushed to
-                // the far edge, which left a dead gap across the header.
-                AppSectionControl(selection: $section)
-                    .padding(.leading, 72)
-
                 Spacer(minLength: 0)
+                AppSectionControl(selection: $section)
             }
             .frame(height: Theme.controlHeight)
+            // Centre the 32pt row on the lights' centreline.
+            .padding(.top, Theme.trafficLightCenterY - Theme.controlHeight / 2)
+            // Reserve the lights' width so a narrow sidebar can't overlap them.
+            .padding(.leading, Theme.trafficLightInset)
+
+            Spacer(minLength: Theme.controlSpacing)
 
             searchBar
         }
-        // This chain must stay identical to ProjectDetailView's header, in the
-        // same order. The `.frame(height: headerContentHeight)` is the part
-        // that matters: without it the sidebar sized itself from its contents
-        // (32 + 6 + 32 = 70pt) while the detail pane was pinned to 84pt, and
-        // the two columns' chrome sat 14pt apart no matter what else changed.
+        // The total height must stay identical to ProjectDetailView's header:
+        // without it the sidebar sized itself from its contents (32 + 6 + 32 =
+        // 70pt) while the detail pane was pinned to 84pt, and the two columns'
+        // chrome sat 14pt apart no matter what else changed.
         .padding(.horizontal, Theme.headerHorizontalPadding)
-        .frame(height: Theme.headerContentHeight)
+        .padding(.bottom, Theme.headerTopInset)
+        .frame(height: Theme.headerHeight, alignment: .top)
         .frame(maxWidth: .infinity)
-        .padding(.top, Theme.headerTopInset)
-        .frame(maxWidth: .infinity, minHeight: Theme.headerHeight, alignment: .top)
         // The glass sits behind the controls rather than wrapping them:
         // `.ignoresSafeArea` on the interactive layer extended it under the
         // title bar, where the window swallowed clicks and the gear button
@@ -336,6 +340,9 @@ struct ProjectListView: View {
         .listStyle(.inset)
         .listSectionSeparator(.hidden)
         .scrollContentBackground(.hidden)
+        // Scrolling still works — only the bar is gone, so the floating glass
+        // header isn't cut by a track running up the right edge.
+        .scrollIndicators(.hidden)
         .scrollEdgeEffectStyle(.soft, for: .all)
         .contentMargins(.bottom, 92, for: .scrollContent)
         .animation(motion(SoftIOSMotion.entry), value: store.projects.count)

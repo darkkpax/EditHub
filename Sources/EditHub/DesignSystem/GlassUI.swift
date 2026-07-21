@@ -35,6 +35,14 @@ enum Theme {
     static let controlHeight: CGFloat = 32
     static let controlSpacing: CGFloat = 6
     static let headerHorizontalPadding: CGFloat = 14
+    /// Distance from the window's top edge to the centre of the traffic
+    /// lights. Sidebar chrome that should read as sitting *on* the light row
+    /// centres itself here rather than on `headerTopInset`, which starts the
+    /// row 6pt too low.
+    static let trafficLightCenterY: CGFloat = 20
+    /// Horizontal space the traffic lights occupy, reserved so sidebar chrome
+    /// can never overlap them at any split-view width.
+    static let trafficLightInset: CGFloat = 72
     /// Compact icon buttons in the sidebar header, matched to the system
     /// sidebar-toggle control so the row reads as one set.
     static let headerButtonSize: CGFloat = 32
