@@ -140,8 +140,6 @@ class _EditHubAppState extends ConsumerState<EditHubApp>
     // Initializes/reads iCloud Drive/EditHub/auth.json in the background.
     // Missing credentials never block the local application shell.
     ref.watch(authProvider);
-    // Start the hourly auto-offload timer for its lifetime.
-    ref.watch(autoArchiveProvider);
     // Resume any download interrupted by a previous crash/quit.
     ref.watch(downloadResumeProvider);
 

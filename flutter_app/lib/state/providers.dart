@@ -87,24 +87,6 @@ final icloudSyncingProvider = StreamProvider<bool>((ref) {
   });
 });
 
-/// Hourly auto-offload of stale / past-month projects to iCloud. Started by
-/// being watched once at app boot; first run is deferred by one interval so a
-/// launch never triggers a surprise mass-move.
-final autoArchiveProvider = Provider<void>((ref) {
-  final timer = Timer.periodic(const Duration(hours: 1), (_) async {
-    final settings = ref.read(settingsProvider);
-    await ref
-        .read(archiverServiceProvider)
-        .runAutoArchive(
-          projectsFolder: settings.projectsFolder,
-          archiveFolder: ref.read(icloudServiceProvider).archiveFolder,
-          autoArchiveDays: settings.autoArchiveDays,
-        );
-    ref.invalidate(projectsProvider);
-  });
-  ref.onDispose(timer.cancel);
-});
-
 /// Resumes downloads that were interrupted by a crash/quit: any project left
 /// in `downloading` state on disk is restarted (the downloader picks up each
 /// file from its `.part`). Paused projects are left alone — the user stopped

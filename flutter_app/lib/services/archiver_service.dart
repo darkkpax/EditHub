@@ -11,21 +11,6 @@ class ArchiverService {
   final ProjectStore store;
   ArchiverService(this.store);
 
-  static const _months = [
-    'JANUARY',
-    'FEBRUARY',
-    'MARCH',
-    'APRIL',
-    'MAY',
-    'JUNE',
-    'JULY',
-    'AUGUST',
-    'SEPTEMBER',
-    'OCTOBER',
-    'NOVEMBER',
-    'DECEMBER',
-  ];
-
   /// Archive ("Сгрузить") a single project folder into
   /// `{archiveFolder}/{year}/{month}/{name}`. When [sourceRoot] is given, empty
   /// year/month folders left behind under it are removed from the local disk.
@@ -111,50 +96,6 @@ class ArchiverService {
     _moveDirectory(archivePath, dest);
     _setCloudPinState(dest, onlineOnly: false);
     return dest;
-  }
-
-  /// Auto-archive: projects not from the current month, or untouched longer
-  /// than [autoArchiveDays], get moved to the archive (skipping the active one).
-  Future<void> runAutoArchive({
-    required String projectsFolder,
-    required String archiveFolder,
-    required int autoArchiveDays,
-  }) async {
-    if (!Directory(projectsFolder).existsSync()) return;
-    final now = DateTime.now();
-    final currentYear = now.year.toString();
-    final currentMonth = _months[now.month - 1];
-    final thresholdMs = autoArchiveDays * 24 * 60 * 60 * 1000;
-
-    for (final project in store.listProjects(projectsFolder)) {
-      final folder = project.folderPath;
-      if (folder == null || project.status == ProjectStatus.active) continue;
-
-      final isCurrentMonth =
-          project.year == currentYear &&
-          project.month?.toUpperCase() == currentMonth;
-      final lastOpened =
-          DateTime.tryParse(
-            project.lastOpenedAt.isNotEmpty
-                ? project.lastOpenedAt
-                : project.createdAt,
-          )?.millisecondsSinceEpoch ??
-          0;
-      final age = now.millisecondsSinceEpoch - lastOpened;
-
-      if (!isCurrentMonth || age >= thresholdMs) {
-        try {
-          await archiveProject(
-            folder,
-            archiveFolder,
-            sourceRoot: projectsFolder,
-          );
-        } catch (e) {
-          // ignore: avoid_print
-          print('Auto-archive failed for $folder: $e');
-        }
-      }
-    }
   }
 
   /// Rename when possible (same volume), otherwise copy then delete the source.

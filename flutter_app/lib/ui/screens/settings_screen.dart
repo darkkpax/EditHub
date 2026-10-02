@@ -65,13 +65,6 @@ class SettingsScreen extends ConsumerWidget {
         const _GoogleDriveRow(),
         const SizedBox(height: 12),
         const _ExportProjectsRow(),
-        const SizedBox(height: 12),
-        _NumberRow(
-          label: 'Auto-offload after (days)',
-          value: settings.autoArchiveDays,
-          onChanged: (v) =>
-              notifier.update((s) => s.copyWith(autoArchiveDays: v)),
-        ),
       ],
     );
   }
@@ -299,41 +292,6 @@ class _TextRow extends StatelessWidget {
           initialValue: value,
           style: const TextStyle(color: AppColors.txt, fontSize: 13),
           onFieldSubmitted: onChanged,
-        ),
-      ],
-    );
-  }
-}
-
-class _NumberRow extends StatelessWidget {
-  final String label;
-  final int value;
-  final ValueChanged<int> onChanged;
-
-  const _NumberRow({
-    required this.label,
-    required this.value,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: const TextStyle(color: AppColors.dim, fontSize: 13)),
-        const SizedBox(height: 6),
-        SizedBox(
-          width: 120,
-          child: TextFormField(
-            initialValue: value.toString(),
-            keyboardType: TextInputType.number,
-            style: const TextStyle(color: AppColors.txt, fontSize: 13),
-            onFieldSubmitted: (v) {
-              final n = int.tryParse(v);
-              if (n != null) onChanged(n);
-            },
-          ),
         ),
       ],
     );

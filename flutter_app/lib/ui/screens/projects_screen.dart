@@ -453,7 +453,33 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen>
         dir.listSync(recursive: true, followLinks: false).whereType<File>().isNotEmpty;
   }
 
+  bool _isPastMonth(ProjectInfo project) {
+    const months = [
+      'JANUARY',
+      'FEBRUARY',
+      'MARCH',
+      'APRIL',
+      'MAY',
+      'JUNE',
+      'JULY',
+      'AUGUST',
+      'SEPTEMBER',
+      'OCTOBER',
+      'NOVEMBER',
+      'DECEMBER',
+    ];
+    final year = int.tryParse(project.year ?? '');
+    final month = months.indexOf(project.month?.toUpperCase() ?? '');
+    if (year == null || month < 0) return false;
+    final now = DateTime.now();
+    return DateTime(year, month + 1).isBefore(DateTime(now.year, now.month));
+  }
+
   Future<void> _delete(ProjectInfo project) async {
+    if (_isPastMonth(project)) {
+      _message('Projects from previous months cannot be deleted.');
+      return;
+    }
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
