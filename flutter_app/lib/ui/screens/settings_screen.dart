@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../models/models.dart';
 import '../../state/providers.dart';
 import '../../theme.dart';
+import '../../services/updater_service.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -17,15 +18,66 @@ class SettingsScreen extends ConsumerWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 68, 20, 20),
       children: [
-        const Text(
+        Text(
           'Settings',
           style: TextStyle(
-            color: AppColors.txt,
-            fontSize: 20,
+            color: AppColors.of(context).txt,
+            fontFamily: 'Newsreader',
+            fontSize: 28,
             fontWeight: FontWeight.w700,
           ),
         ),
-        const SizedBox(height: 20),
+        SizedBox(height: 20),
+        Text(
+          'Appearance',
+          style: TextStyle(
+            fontFamily: 'Newsreader',
+            fontSize: 22,
+            color: AppColors.of(context).txt,
+          ),
+        ),
+        const SizedBox(height: 10),
+        SegmentedButton<String>(
+          segments: const [
+            ButtonSegment(
+              value: 'dark',
+              label: Text('Dark'),
+              icon: Icon(Icons.dark_mode_outlined),
+            ),
+            ButtonSegment(
+              value: 'light',
+              label: Text('Light'),
+              icon: Icon(Icons.light_mode_outlined),
+            ),
+            ButtonSegment(
+              value: 'system',
+              label: Text('System'),
+              icon: Icon(Icons.brightness_auto_outlined),
+            ),
+          ],
+          selected: {
+            ['dark', 'light', 'system'].contains(settings.theme)
+                ? settings.theme
+                : 'dark',
+          },
+          onSelectionChanged: (values) =>
+              notifier.update((s) => s.copyWith(theme: values.single)),
+        ),
+        const SizedBox(height: 24),
+        Text(
+          'Storage',
+          style: TextStyle(
+            fontFamily: 'Newsreader',
+            fontSize: 22,
+            color: AppColors.of(context).txt,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Projects stay here until you choose to archive or delete them.',
+          style: TextStyle(color: AppColors.of(context).dim),
+        ),
+        const SizedBox(height: 12),
         _FolderRow(
           label: 'Projects folder',
           value: settings.projectsFolder,
@@ -49,25 +101,56 @@ class SettingsScreen extends ConsumerWidget {
           onPick: (dir) =>
               notifier.update((s) => s.copyWith(dropfxLibrary: dir)),
         ),
-        const SizedBox(height: 12),
+        SizedBox(height: 12),
         _TextRow(
           label: 'DaVinci Resolve path',
           value: settings.davinciPath,
           onChanged: (v) => notifier.update((s) => s.copyWith(davinciPath: v)),
         ),
-        const SizedBox(height: 12),
+        SizedBox(height: 12),
         _TextRow(
           label: 'Adobe Premiere Pro path',
           value: settings.premierePath,
           onChanged: (v) => notifier.update((s) => s.copyWith(premierePath: v)),
         ),
-        const SizedBox(height: 12),
+        SizedBox(height: 12),
         const _GoogleDriveRow(),
-        const SizedBox(height: 12),
+        SizedBox(height: 12),
         const _ExportProjectsRow(),
+        const SizedBox(height: 24),
+        const _UpdateRow(),
       ],
     );
   }
+}
+
+class _UpdateRow extends StatefulWidget {
+  const _UpdateRow();
+  @override
+  State<_UpdateRow> createState() => _UpdateRowState();
+}
+
+class _UpdateRowState extends State<_UpdateRow> {
+  bool _busy = false;
+  final _updater = UpdaterService();
+  @override
+  Widget build(BuildContext context) => Align(
+    alignment: Alignment.centerLeft,
+    child: OutlinedButton.icon(
+      onPressed: _busy
+          ? null
+          : () async {
+              setState(() => _busy = true);
+              try {
+                await _updater.check(context: context, interactive: true);
+              } finally {
+                if (mounted) setState(() => _busy = false);
+              }
+            },
+      icon: const Icon(Icons.system_update_alt_outlined, size: 18),
+      label: Text(_busy ? 'Checking for updates…' : 'Check for updates'),
+    ),
+  );
 }
 
 /// One-shot: export a `.drp` into every current DaVinci project's folder.
@@ -82,7 +165,7 @@ class _ExportProjectsRowState extends ConsumerState<_ExportProjectsRow> {
   bool _busy = false;
 
   Future<void> _exportAll() async {
-    final folders = (ref.read(projectsProvider).value ?? const [])
+    final folders = (ref.read(projectsProvider).value ?? [])
         .where(
           (project) =>
               project.editor == 'davinci' &&
@@ -112,9 +195,7 @@ class _ExportProjectsRowState extends ConsumerState<_ExportProjectsRow> {
 
   void _snack(String text) {
     if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(text)));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
   }
 
   @override
@@ -122,27 +203,27 @@ class _ExportProjectsRowState extends ConsumerState<_ExportProjectsRow> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
+        Text(
           'DaVinci project files',
-          style: TextStyle(color: AppColors.dim, fontSize: 13),
+          style: TextStyle(color: AppColors.of(context).dim, fontSize: 13),
         ),
-        const SizedBox(height: 6),
+        SizedBox(height: 6),
         FilledButton.icon(
           onPressed: _busy ? null : _exportAll,
           icon: _busy
-              ? const SizedBox(
+              ? SizedBox(
                   width: 16,
                   height: 16,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
-              : const Icon(Icons.save_alt_rounded),
-          label: const Text('Export .drp for all projects'),
+              : Icon(Icons.save_alt_rounded),
+          label: Text('Export .drp for all projects'),
         ),
-        const SizedBox(height: 4),
-        const Text(
+        SizedBox(height: 4),
+        Text(
           'Requires DaVinci Resolve open with scripting enabled. Switches the '
           'active project as it exports each one.',
-          style: TextStyle(color: AppColors.dim, fontSize: 11),
+          style: TextStyle(color: AppColors.of(context).dim, fontSize: 11),
         ),
       ],
     );
@@ -166,11 +247,12 @@ class _GoogleDriveRowState extends ConsumerState<_GoogleDriveRow> {
     try {
       await ref.read(googleDriveAuthProvider).signIn();
       if (mounted) {
-        setState(() =>
-            _connected = ref.read(googleDriveAuthProvider).isSignedIn);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Google Drive connected')),
+        setState(
+          () => _connected = ref.read(googleDriveAuthProvider).isSignedIn,
         );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Google Drive connected')));
       }
     } catch (error) {
       if (mounted) {
@@ -188,24 +270,24 @@ class _GoogleDriveRowState extends ConsumerState<_GoogleDriveRow> {
     if (_connected) {
       return Row(
         children: [
-          const Icon(Icons.check_circle, color: AppColors.good, size: 20),
-          const SizedBox(width: 8),
-          const Text(
+          Icon(Icons.check_circle, color: AppColors.of(context).good, size: 20),
+          SizedBox(width: 8),
+          Text(
             'Google Drive connected',
-            style: TextStyle(color: AppColors.txt, fontSize: 13),
+            style: TextStyle(color: AppColors.of(context).txt, fontSize: 13),
           ),
-          const Spacer(),
+          Spacer(),
           TextButton(
             onPressed: _busy ? null : _connect,
-            child: const Text('Reconnect'),
+            child: Text('Reconnect'),
           ),
         ],
       );
     }
     return FilledButton.icon(
       onPressed: _busy ? null : _connect,
-      icon: const Icon(Icons.add_to_drive),
-      label: const Text('Connect Google Drive'),
+      icon: Icon(Icons.add_to_drive),
+      label: Text('Connect Google Drive'),
     );
   }
 }
@@ -230,9 +312,9 @@ class _FolderRow extends StatelessWidget {
         children: [
           Text(
             label,
-            style: const TextStyle(color: AppColors.dim, fontSize: 13),
+            style: TextStyle(color: AppColors.of(context).dim, fontSize: 13),
           ),
-          const SizedBox(height: 6),
+          SizedBox(height: 6),
           Row(
             children: [
               Expanded(
@@ -242,25 +324,28 @@ class _FolderRow extends StatelessWidget {
                     vertical: 10,
                   ),
                   decoration: BoxDecoration(
-                    color: AppColors.fill2,
+                    color: AppColors.of(context).fill2,
                     borderRadius: BorderRadius.circular(AppColors.radiusSm),
-                    border: Border.all(color: AppColors.sep),
+                    border: Border.all(color: AppColors.of(context).sep),
                   ),
                   child: Text(
                     value.isEmpty ? '—' : value,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: AppColors.txt, fontSize: 13),
+                    style: TextStyle(
+                      color: AppColors.of(context).txt,
+                      fontSize: 13,
+                    ),
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
+              SizedBox(width: 8),
               FilledButton(
                 onPressed: () async {
                   final dir = await FilePicker.getDirectoryPath();
                   if (dir != null) onPick(dir);
                 },
-                child: const Text('Choose'),
+                child: Text('Choose'),
               ),
             ],
           ),
@@ -286,11 +371,14 @@ class _TextRow extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: const TextStyle(color: AppColors.dim, fontSize: 13)),
-        const SizedBox(height: 6),
+        Text(
+          label,
+          style: TextStyle(color: AppColors.of(context).dim, fontSize: 13),
+        ),
+        SizedBox(height: 6),
         TextFormField(
           initialValue: value,
-          style: const TextStyle(color: AppColors.txt, fontSize: 13),
+          style: TextStyle(color: AppColors.of(context).txt, fontSize: 13),
           onFieldSubmitted: onChanged,
         ),
       ],

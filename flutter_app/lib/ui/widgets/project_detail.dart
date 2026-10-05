@@ -34,7 +34,7 @@ class ProjectHeader extends StatelessWidget {
         project.status == ProjectStatus.incloud;
     return SizedBox(
       height: 116,
-      key: const Key('project-header'),
+      key: Key('project-header'),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(18, 52, 18, 8),
         child: Row(
@@ -43,17 +43,22 @@ class ProjectHeader extends StatelessWidget {
               width: 56,
               height: 56,
               decoration: BoxDecoration(
-                color: (archived ? AppColors.warn : AppColors.accent)
-                    .withValues(alpha: .14),
+                color:
+                    (archived
+                            ? AppColors.of(context).warn
+                            : AppColors.of(context).accent)
+                        .withValues(alpha: .14),
                 borderRadius: BorderRadius.circular(AppColors.radiusSm),
               ),
               child: Icon(
                 archived ? Icons.cloud_outlined : Icons.folder_rounded,
-                color: archived ? AppColors.warn : AppColors.accent,
+                color: archived
+                    ? AppColors.of(context).warn
+                    : AppColors.of(context).accent,
                 size: 28,
               ),
             ),
-            const SizedBox(width: 14),
+            SizedBox(width: 14),
             Expanded(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -66,13 +71,14 @@ class ProjectHeader extends StatelessWidget {
                           project.name,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 20,
+                          style: TextStyle(
+                            fontFamily: 'Newsreader',
+                            fontSize: 24,
                             fontWeight: FontWeight.w700,
                           ),
                         ),
                       ),
-                      const SizedBox(width: 9),
+                      SizedBox(width: 9),
                       _StatusBadge(status: project.status),
                     ],
                   ),
@@ -80,18 +86,18 @@ class ProjectHeader extends StatelessWidget {
                     children: [
                       Text(
                         '${_month(project.month)} ${project.year ?? ''}',
-                        style: const TextStyle(
-                          color: AppColors.dim,
+                        style: TextStyle(
+                          color: AppColors.of(context).dim,
                           fontSize: 12,
                         ),
                       ),
-                      const SizedBox(width: 12),
+                      SizedBox(width: 12),
                       FutureBuilder<int>(
                         future: size,
                         builder: (_, snap) => Text(
                           'Size ${snap.hasData ? _formatBytes(snap.data) : '…'}',
-                          style: const TextStyle(
-                            color: AppColors.dim,
+                          style: TextStyle(
+                            color: AppColors.of(context).dim,
                             fontSize: 12,
                           ),
                         ),
@@ -101,13 +107,13 @@ class ProjectHeader extends StatelessWidget {
                 ],
               ),
             ),
-            const SizedBox(width: 14),
+            SizedBox(width: 14),
             Row(
               crossAxisAlignment: CrossAxisAlignment.end,
               spacing: 8,
               children: [
                 _PrimaryAction(
-                  key: const Key('project-open-action'),
+                  key: Key('project-open-action'),
                   onTap: archived ? onRestore : onOpen,
                   icon: archived
                       ? Icons.cloud_download_rounded
@@ -115,19 +121,19 @@ class ProjectHeader extends StatelessWidget {
                   label: archived ? 'Restore' : 'Open',
                 ),
                 _CircleAction(
-                  key: const Key('project-reveal-action'),
+                  key: Key('project-reveal-action'),
                   tooltip: 'Show in file manager',
                   onTap: onReveal,
                   icon: Icons.folder_open_rounded,
                 ),
                 _CircleAction(
-                  key: const Key('project-archive-action'),
+                  key: Key('project-archive-action'),
                   tooltip: archived ? 'Already in iCloud' : 'Offload to iCloud',
                   onTap: archived ? null : onArchive,
                   icon: Icons.cloud_upload_rounded,
                 ),
                 _CircleAction(
-                  key: const Key('project-delete-action'),
+                  key: Key('project-delete-action'),
                   tooltip: 'Delete project',
                   onTap: onDelete,
                   icon: Icons.delete_outline_rounded,
@@ -187,14 +193,16 @@ class ProjectDetail extends StatelessWidget {
         : project.downloadProgress.values.reduce((a, b) => a + b) /
               project.downloadProgress.length;
 
-    final contentTop = busy ? 184.0 : 116.0;
+    final contentTop = busy
+        ? (project.downloadError.isNotEmpty ? 212.0 : 184.0)
+        : 116.0;
     return Stack(
       children: [
         Positioned.fill(
           child: archived
               ? Padding(
                   padding: EdgeInsets.only(top: contentTop),
-                  child: const _EmptyFolders(
+                  child: _EmptyFolders(
                     text: 'Restore the project to see local files.',
                   ),
                 )
@@ -204,14 +212,14 @@ class ProjectDetail extends StatelessWidget {
                     if (snapshot.connectionState != ConnectionState.done) {
                       return Padding(
                         padding: EdgeInsets.only(top: contentTop),
-                        child: const Center(child: CircularProgressIndicator()),
+                        child: Center(child: CircularProgressIndicator()),
                       );
                     }
-                    final entries = snapshot.data ?? const [];
+                    final entries = snapshot.data ?? [];
                     if (entries.isEmpty) {
                       return Padding(
                         padding: EdgeInsets.only(top: contentTop),
-                        child: const _EmptyFolders(
+                        child: _EmptyFolders(
                           text: 'This project folder is empty or unavailable.',
                         ),
                       );
@@ -231,16 +239,18 @@ class ProjectDetail extends StatelessWidget {
             right: 0,
             child: Container(
               padding: const EdgeInsets.fromLTRB(18, 10, 18, 10),
-              color: AppColors.bg,
+              color: AppColors.of(context).bg,
               child: Row(
                 children: [
                   Icon(
                     paused
                         ? Icons.pause_circle_rounded
                         : Icons.downloading_rounded,
-                    color: paused ? AppColors.dim : AppColors.accent,
+                    color: paused
+                        ? AppColors.of(context).dim
+                        : AppColors.of(context).accent,
                   ),
-                  const SizedBox(width: 10),
+                  SizedBox(width: 10),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -249,17 +259,29 @@ class ProjectDetail extends StatelessWidget {
                           paused
                               ? 'Paused · ${averageProgress.round()}%'
                               : 'Downloading footage · ${averageProgress.round()}%',
-                          style: const TextStyle(fontSize: 12),
+                          style: TextStyle(fontSize: 12),
                         ),
-                        const SizedBox(height: 6),
+                        SizedBox(height: 6),
+                        if (project.downloadError.isNotEmpty) ...[
+                          Text(
+                            project.downloadError,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: AppColors.of(context).bad,
+                              fontSize: 12,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                        ],
                         LinearProgressIndicator(
                           value: averageProgress / 100,
-                          color: paused ? AppColors.dim : null,
+                          color: paused ? AppColors.of(context).dim : null,
                         ),
                       ],
                     ),
                   ),
-                  const SizedBox(width: 4),
+                  SizedBox(width: 4),
                   TextButton(
                     onPressed: paused ? onResume : onPause,
                     child: Text(paused ? 'Resume' : 'Pause'),
@@ -267,9 +289,9 @@ class ProjectDetail extends StatelessWidget {
                   TextButton(
                     onPressed: onCancelDownload,
                     style: TextButton.styleFrom(
-                      foregroundColor: AppColors.dim,
+                      foregroundColor: AppColors.of(context).dim,
                     ),
-                    child: const Text('Cancel'),
+                    child: Text('Cancel'),
                   ),
                 ],
               ),
@@ -299,24 +321,17 @@ class _PrimaryAction extends StatelessWidget {
       height: 40,
       padding: const EdgeInsets.symmetric(horizontal: 17),
       decoration: BoxDecoration(
-        color: AppColors.accent,
+        color: AppColors.of(context).accentFill,
         borderRadius: BorderRadius.circular(AppColors.radiusSm),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.accent.withValues(alpha: .25),
-            blurRadius: 18,
-            offset: const Offset(0, 7),
-          ),
-        ],
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(icon, size: 19, color: Colors.white),
-          const SizedBox(width: 7),
+          SizedBox(width: 7),
           Text(
             label,
-            style: const TextStyle(
+            style: TextStyle(
               color: Colors.white,
               fontSize: 13,
               fontWeight: FontWeight.w700,
@@ -350,23 +365,25 @@ class _CircleAction extends StatelessWidget {
       enabled: onTap != null,
       child: AnimatedOpacity(
         opacity: onTap == null ? .35 : 1,
-        duration: const Duration(milliseconds: 140),
+        duration: Duration(milliseconds: 140),
         child: Container(
           width: 40,
           height: 40,
           decoration: BoxDecoration(
-            color: AppColors.fill1,
+            color: AppColors.of(context).fill1,
             shape: BoxShape.circle,
             border: Border.all(
               color: danger
-                  ? AppColors.bad.withValues(alpha: .55)
-                  : Colors.white.withValues(alpha: .45),
+                  ? AppColors.of(context).bad.withValues(alpha: .55)
+                  : AppColors.of(context).sep,
             ),
           ),
           child: Icon(
             icon,
             size: 19,
-            color: danger ? AppColors.bad : AppColors.txt,
+            color: danger
+                ? AppColors.of(context).bad
+                : AppColors.of(context).txt,
           ),
         ),
       ),
@@ -381,13 +398,13 @@ class _StatusBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (label, color) = switch (status) {
-      ProjectStatus.active => ('Open', AppColors.accent),
-      ProjectStatus.downloading => ('Downloading', AppColors.warn),
-      ProjectStatus.paused => ('Paused', AppColors.dim),
-      ProjectStatus.uploading => ('iCloud', AppColors.brand),
+      ProjectStatus.active => ('Open', AppColors.of(context).accent),
+      ProjectStatus.downloading => ('Downloading', AppColors.of(context).warn),
+      ProjectStatus.paused => ('Paused', AppColors.of(context).dim),
+      ProjectStatus.uploading => ('iCloud', AppColors.of(context).brand),
       ProjectStatus.archive ||
-      ProjectStatus.incloud => ('iCloud', AppColors.warn),
-      ProjectStatus.ready => ('Ready', AppColors.good),
+      ProjectStatus.incloud => ('iCloud', AppColors.of(context).warn),
+      ProjectStatus.ready => ('Ready', AppColors.of(context).good),
     };
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -481,7 +498,7 @@ class _EntryNodeState extends State<_EntryNode> {
                 : () => widget.onOpenFile(entry),
           ),
           AnimatedSize(
-            duration: const Duration(milliseconds: 180),
+            duration: Duration(milliseconds: 180),
             curve: Curves.easeOutCubic,
             child: !_expanded
                 ? const SizedBox.shrink()
@@ -526,10 +543,7 @@ class _FolderTile extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
         decoration: BoxDecoration(
-          color: isFolder ? AppColors.fill2 : Colors.transparent,
-          border: Border.all(
-            color: isFolder ? AppColors.sep : AppColors.fill1,
-          ),
+          border: Border(bottom: BorderSide(color: AppColors.of(context).sep)),
           borderRadius: BorderRadius.circular(AppColors.radiusSm),
         ),
         child: Row(
@@ -539,22 +553,22 @@ class _FolderTile extends StatelessWidget {
               height: 26,
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: isFolder
-                    ? AppColors.accent.withValues(alpha: .16)
-                    : Colors.transparent,
+                color: Colors.transparent,
                 borderRadius: BorderRadius.circular(AppColors.radiusXs),
               ),
               child: Icon(
                 isFolder
                     ? (expanded
                           ? Icons.folder_open_rounded
-                          : Icons.folder_rounded)
+                          : Icons.folder_outlined)
                     : Icons.insert_drive_file_outlined,
-                color: isFolder ? AppColors.accent : AppColors.dim,
+                color: isFolder
+                    ? AppColors.of(context).accent
+                    : AppColors.of(context).dim,
                 size: 15,
               ),
             ),
-            const SizedBox(width: 10),
+            SizedBox(width: 10),
             Expanded(
               child: Text(
                 entry.name,
@@ -563,7 +577,9 @@ class _FolderTile extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: isFolder ? FontWeight.w600 : FontWeight.w400,
-                  color: isFolder ? AppColors.txt : AppColors.dim,
+                  color: isFolder
+                      ? AppColors.of(context).txt
+                      : AppColors.of(context).dim,
                 ),
               ),
             ),
@@ -571,18 +587,21 @@ class _FolderTile extends StatelessWidget {
             if (isFolder && fileCount > 0) ...[
               Text(
                 '$fileCount',
-                style: const TextStyle(color: AppColors.dim, fontSize: 11),
+                style: TextStyle(
+                  color: AppColors.of(context).dim,
+                  fontSize: 11,
+                ),
               ),
-              const SizedBox(width: 6),
+              SizedBox(width: 6),
             ],
             AnimatedRotation(
               turns: expanded ? .25 : 0,
-              duration: const Duration(milliseconds: 160),
+              duration: Duration(milliseconds: 160),
               child: Icon(
                 isFolder
                     ? Icons.chevron_right_rounded
                     : Icons.open_in_new_rounded,
-                color: AppColors.dim,
+                color: AppColors.of(context).dim,
                 size: isFolder ? 18 : 14,
               ),
             ),
@@ -602,7 +621,7 @@ class _EmptyFolders extends StatelessWidget {
     child: Text(
       text,
       textAlign: TextAlign.center,
-      style: const TextStyle(color: AppColors.dim, fontSize: 13),
+      style: TextStyle(color: AppColors.of(context).dim, fontSize: 13),
     ),
   );
 }

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:isolate';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
@@ -123,7 +122,6 @@ final projectsProvider = StreamProvider<List<ProjectInfo>>((ref) async* {
   final local = store.listProjects(settings.projectsFolder);
   yield local;
 
-  await Isolate.run(() => ICloudService.prepareArchiveAt(icloud.icloudPath));
   final projects = [...local];
   final seen = projects.map((project) => project.id).toSet();
   for (final archived in icloud.archiveSearchFolders) {

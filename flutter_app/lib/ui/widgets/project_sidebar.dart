@@ -18,13 +18,13 @@ class ProjectSearchField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SizedBox(
-    key: const Key('sidebar-header'),
+    key: Key('sidebar-header'),
     height: 116,
     child: Padding(
       padding: const EdgeInsets.fromLTRB(14, 58, 14, 10),
       child: TextField(
         onChanged: onChanged,
-        decoration: const InputDecoration(
+        decoration: InputDecoration(
           hintText: 'Search projects',
           prefixIcon: Icon(Icons.search_rounded, size: 19),
           isDense: true,
@@ -49,15 +49,15 @@ class ProjectSidebar extends StatelessWidget {
   final List<ProjectInfo> projects;
   final String? selectedId;
   final ValueChanged<ProjectInfo> onSelected;
-  final void Function(ProjectInfo project, Offset globalPosition)? onContextMenu;
+  final void Function(ProjectInfo project, Offset globalPosition)?
+  onContextMenu;
   final String query;
 
   @override
   Widget build(BuildContext context) {
     final filtered = projects
         .where(
-          (project) =>
-              project.name.toLowerCase().contains(query.toLowerCase()),
+          (project) => project.name.toLowerCase().contains(query.toLowerCase()),
         )
         .toList();
     final groups = <String, List<ProjectInfo>>{};
@@ -67,26 +67,29 @@ class ProjectSidebar extends StatelessWidget {
     var rowIndex = 0;
 
     return SizedBox(
-      key: const Key('projects-sidebar'),
+      key: Key('projects-sidebar'),
       width: 320,
       child: Stack(
         children: [
-          const Positioned(
+          Positioned(
             top: 116,
             left: 0,
             right: 0,
             bottom: 0,
-            child: ColoredBox(color: AppColors.fill1),
+            child: ColoredBox(color: AppColors.of(context).fill1),
           ),
           Positioned.fill(
             child: groups.isEmpty
-                ? const Padding(
+                ? Padding(
                     padding: EdgeInsets.fromLTRB(22, 136, 22, 22),
                     child: Align(
                       alignment: Alignment.topLeft,
                       child: Text(
                         'No projects found.',
-                        style: TextStyle(color: AppColors.dim, fontSize: 13),
+                        style: TextStyle(
+                          color: AppColors.of(context).dim,
+                          fontSize: 13,
+                        ),
                       ),
                     ),
                   )
@@ -98,8 +101,8 @@ class ProjectSidebar extends StatelessWidget {
                           padding: const EdgeInsets.fromLTRB(10, 10, 10, 6),
                           child: Text(
                             group.key.toUpperCase(),
-                            style: const TextStyle(
-                              color: AppColors.dim,
+                            style: TextStyle(
+                              color: AppColors.of(context).dim,
                               fontSize: 11,
                               fontWeight: FontWeight.w700,
                               letterSpacing: .7,
@@ -124,7 +127,7 @@ class ProjectSidebar extends StatelessWidget {
                     ],
                   ),
           ),
-          const Positioned(
+          Positioned(
             key: Key('sidebar-divider'),
             top: 116,
             right: 0,
@@ -139,7 +142,9 @@ class ProjectSidebar extends StatelessWidget {
 
   String _period(ProjectInfo project) {
     final month = project.month;
-    if (month == null || project.year == null) return 'Projects';
+    if (month == null || month.isEmpty || project.year == null) {
+      return 'Projects';
+    }
     return '${month[0]}${month.substring(1).toLowerCase()} ${project.year}';
   }
 }
@@ -167,75 +172,75 @@ class _ProjectRow extends StatelessWidget {
       child: PressableScale(
         onTap: onTap,
         pressedScale: .98,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        curve: Curves.easeOutCubic,
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        decoration: BoxDecoration(
-          color: selected
-              ? AppColors.accent.withValues(alpha: .2)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(AppColors.radiusXs),
-          border: Border.all(
+        child: AnimatedContainer(
+          duration: Duration(milliseconds: 150),
+          curve: Curves.easeOutCubic,
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(
             color: selected
-                ? AppColors.accent.withValues(alpha: .12)
+                ? AppColors.of(context).accent.withValues(alpha: .2)
                 : Colors.transparent,
+            borderRadius: BorderRadius.circular(AppColors.radiusXs),
+            border: Border.all(
+              color: selected
+                  ? AppColors.of(context).accent.withValues(alpha: .12)
+                  : Colors.transparent,
+            ),
+          ),
+          child: Row(
+            children: [
+              AnimatedContainer(
+                duration: Duration(milliseconds: 180),
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color:
+                      (project.status == ProjectStatus.archive
+                              ? AppColors.of(context).warn
+                              : AppColors.of(context).accent)
+                          .withValues(alpha: selected ? .2 : .14),
+                  borderRadius: BorderRadius.circular(AppColors.radiusXs),
+                ),
+                child: Icon(
+                  project.status == ProjectStatus.archive
+                      ? Icons.cloud_rounded
+                      : Icons.folder_rounded,
+                  color: project.status == ProjectStatus.archive
+                      ? AppColors.of(context).warn
+                      : AppColors.of(context).accent,
+                  size: 21,
+                ),
+              ),
+              SizedBox(width: 11),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      project.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    SizedBox(height: 3),
+                    Text(
+                      _status(project.status),
+                      style: TextStyle(
+                        color: project.status == ProjectStatus.downloading
+                            ? AppColors.of(context).warn
+                            : AppColors.of(context).dim,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
-        child: Row(
-          children: [
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color:
-                    (project.status == ProjectStatus.archive
-                            ? AppColors.warn
-                            : AppColors.accent)
-                        .withValues(alpha: selected ? .2 : .14),
-                borderRadius: BorderRadius.circular(AppColors.radiusXs),
-              ),
-              child: Icon(
-                project.status == ProjectStatus.archive
-                    ? Icons.cloud_rounded
-                    : Icons.folder_rounded,
-                color: project.status == ProjectStatus.archive
-                    ? AppColors.warn
-                    : AppColors.accent,
-                size: 21,
-              ),
-            ),
-            const SizedBox(width: 11),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    project.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    _status(project.status),
-                    style: TextStyle(
-                      color: project.status == ProjectStatus.downloading
-                          ? AppColors.warn
-                          : AppColors.dim,
-                      fontSize: 11,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
       ),
     ),
   );

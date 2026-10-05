@@ -4,11 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:window_manager/window_manager.dart';
 
-import 'services/project_store.dart';
-import 'services/icloud_service.dart';
-import 'services/settings_service.dart';
 import 'services/updater_service.dart';
 import 'theme.dart';
+import 'state/providers.dart';
 import 'ui/app.dart';
 import 'window_config.dart';
 
@@ -53,16 +51,6 @@ Future<void> main() async {
     exit(0);
   }
 
-  // Sweep orphaned `__extracting_*` temp folders left by interrupted
-  // extractions before the UI touches anything.
-  try {
-    final settings = SettingsService().load();
-    ProjectStore().sweepExtractingDirs([
-      settings.projectsFolder,
-      ICloudService.archiveFolderAt(settings.icloudPath),
-    ]);
-  } catch (_) {}
-
   const options = WindowOptions(
     size: kEditHubWindowSize,
     minimumSize: kEditHubMinimumSize,
@@ -81,21 +69,26 @@ Future<void> main() async {
 
 final _navigatorKey = GlobalKey<NavigatorState>();
 
-class EditHubRoot extends StatefulWidget {
+class EditHubRoot extends ConsumerStatefulWidget {
   const EditHubRoot({super.key});
 
   @override
-  State<EditHubRoot> createState() => _EditHubRootState();
+  ConsumerState<EditHubRoot> createState() => _EditHubRootState();
 }
 
-class _EditHubRootState extends State<EditHubRoot> {
+class _EditHubRootState extends ConsumerState<EditHubRoot> {
+  late final _updater = UpdaterService(_navigatorKey);
   @override
   void initState() {
     super.initState();
     // Check for updates once the navigator exists (styled in-app prompt).
-    WidgetsBinding.instance.addPostFrameCallback(
-      (_) => UpdaterService(_navigatorKey).start(),
-    );
+    WidgetsBinding.instance.addPostFrameCallback((_) => _updater.start());
+  }
+
+  @override
+  void dispose() {
+    _updater.dispose();
+    super.dispose();
   }
 
   @override
@@ -104,9 +97,17 @@ class _EditHubRootState extends State<EditHubRoot> {
       title: 'EditHub',
       navigatorKey: _navigatorKey,
       debugShowCheckedModeBanner: false,
-      theme: buildTheme(),
+      theme: buildTheme(brightness: Brightness.light),
+      darkTheme: buildTheme(),
+      themeMode: switch (ref.watch(settingsProvider).theme) {
+        'light' => ThemeMode.light,
+        'system' => ThemeMode.system,
+        _ => ThemeMode.dark,
+      },
       // Hide scrollbars app-wide (scrolling still works, drag/wheel unaffected).
-      scrollBehavior: const MaterialScrollBehavior().copyWith(scrollbars: false),
+      scrollBehavior: const MaterialScrollBehavior().copyWith(
+        scrollbars: false,
+      ),
       home: const EditHubApp(),
     );
   }

@@ -84,9 +84,21 @@ class ProjectRepository {
   bool isDownloading(String projectId) => _downloads.containsKey(projectId);
 
   /// Abandon the download. Completed files stay; the project returns to `ready`.
-  void cancelDownload(String projectId) {
-    _paused.remove(projectId);
-    downloader.cancel(projectId);
+  void cancelDownload(ProjectInfo project) {
+    _paused.remove(project.id);
+    if (_downloads.containsKey(project.id)) {
+      downloader.cancel(project.id);
+    } else if (project.folderPath != null) {
+      final current = store.readProjectInfo(project.folderPath!) ?? project;
+      store.writeProjectInfo(
+        project.folderPath!,
+        current.copyWith(
+          status: ProjectStatus.ready,
+          downloadError: '',
+          downloadProgress: const {},
+        ),
+      );
+    }
   }
 
   /// Stop the download but keep the partial (`.part`) files and progress so it
@@ -102,12 +114,15 @@ class ProjectRepository {
     ProjectInfo project,
     void Function(ProjectInfo project)? onChanged,
   ) {
-    if (_downloads.containsKey(project.id) || project.folderPath == null) return;
+    if (_downloads.containsKey(project.id) || project.folderPath == null) {
+      return;
+    }
     _paused.remove(project.id);
     final folder = project.folderPath!;
     final running = (store.readProjectInfo(folder) ?? project).copyWith(
       folderPath: folder,
       status: ProjectStatus.downloading,
+      downloadError: '',
     );
     store.writeProjectInfo(folder, running);
     onChanged?.call(running);
@@ -158,6 +173,7 @@ class ProjectRepository {
   }) async {
     final folder = initial.folderPath!;
     var paused = false;
+    var downloadError = '';
     // ponytail: throttle disk-write + onChanged to ~2/s. onProgress fires per
     // network chunk (×maxConcurrent files); onChanged can invalidate the whole
     // projects stream (disk rescan + isolate spawn), which froze the app solid.
@@ -191,14 +207,22 @@ class ProjectRepository {
     } on DownloadCancelledException {
       // Distinguish a pause (keep progress, resumable) from a plain cancel.
       paused = _paused.remove(initial.id);
+    } catch (error) {
+      paused = true;
+      downloadError = error.toString();
     } finally {
       final current = store.readProjectInfo(folder) ?? initial;
       final next = paused
-          ? current.copyWith(folderPath: folder, status: ProjectStatus.paused)
+          ? current.copyWith(
+              folderPath: folder,
+              status: ProjectStatus.paused,
+              downloadError: downloadError,
+            )
           : current.copyWith(
               folderPath: folder,
               status: ProjectStatus.ready,
               downloadProgress: const {},
+              downloadError: '',
             );
       store.writeProjectInfo(folder, next);
       onChanged?.call(next);

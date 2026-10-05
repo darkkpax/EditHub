@@ -139,6 +139,35 @@ void main() {
     );
   });
 
+  test(
+    'failed download stays paused with an error instead of looking ready',
+    () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      server.listen((request) async {
+        request.response.statusCode = 403;
+        await request.response.close();
+      });
+      try {
+        final store = ProjectStore();
+        final repository = ProjectRepository(
+          store: store,
+          downloader: DownloaderService(maxAttempts: 1),
+        );
+        final project = await repository.create(
+          projectsFolder: temp.path,
+          name: 'Failed film',
+          urls: ['http://127.0.0.1:${server.port}/source'],
+        );
+        await repository.waitForDownload(project.id);
+        final saved = store.readProjectInfo(project.folderPath!)!;
+        expect(saved.status, ProjectStatus.paused);
+        expect(saved.toManifestJson()['downloadError'], contains('403'));
+      } finally {
+        await server.close(force: true);
+      }
+    },
+  );
+
   test('authenticated create posts metadata to the catalog API', () async {
     late Map<String, dynamic> body;
     final repository = ProjectRepository(

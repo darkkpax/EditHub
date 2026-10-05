@@ -32,27 +32,13 @@ class GlassSurface extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final corners = borderRadius ?? BorderRadius.circular(radius);
-    final fill = LinearGradient(
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-      colors: [
-        Color.alphaBlend(
-          Colors.white.withValues(alpha: frost),
-          AppColors.card.withValues(alpha: scrim),
-        ),
-        Color.alphaBlend(
-          Colors.white.withValues(alpha: frost * .4),
-          AppColors.bg.withValues(alpha: scrim * .82),
-        ),
-      ],
-    );
+    final palette = AppColors.of(context);
+    final fill = palette.card.withValues(alpha: (scrim + .48).clamp(0, .96));
     final content = DecoratedBox(
       decoration: BoxDecoration(
-        gradient: fill,
+        color: fill,
         borderRadius: corners,
-        border: border
-            ? Border.all(color: Colors.white.withValues(alpha: .16))
-            : null,
+        border: border ? Border.all(color: palette.sep) : null,
       ),
       child: padding == null ? child : Padding(padding: padding!, child: child),
     );
@@ -69,9 +55,9 @@ class GlassSurface extends StatelessWidget {
         borderRadius: corners,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: .45),
+            color: Colors.black.withValues(alpha: palette.light ? .12 : .32),
             blurRadius: 28,
-            offset: const Offset(0, 14),
+            offset: Offset(0, 14),
           ),
         ],
       ),

@@ -47,7 +47,7 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen>
     super.initState();
     _createAnim = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 220),
+      duration: Duration(milliseconds: 220),
     );
   }
 
@@ -62,7 +62,7 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen>
   Widget build(BuildContext context) {
     final projectsAsync = ref.watch(projectsProvider);
     return projectsAsync.when(
-      loading: () => const Center(child: CircularProgressIndicator()),
+      loading: () => Center(child: CircularProgressIndicator()),
       error: (error, _) => _ErrorState(
         error: error.toString(),
         onRetry: () => ref.invalidate(projectsProvider),
@@ -93,29 +93,32 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen>
                   // Only the file list animates on project switch — the header
                   // stays put. Springy slide + fade for an iOS-like feel.
                   child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 380),
+                    duration: Duration(milliseconds: 380),
                     switchInCurve: AppCurves.spring,
                     switchOutCurve: Curves.easeIn,
                     transitionBuilder: (child, animation) => FadeTransition(
                       opacity: animation,
                       child: SlideTransition(
                         position: Tween<Offset>(
-                          begin: const Offset(.04, 0),
+                          begin: Offset(.04, 0),
                           end: Offset.zero,
                         ).animate(animation),
                         child: child,
                       ),
                     ),
                     child: selected == null
-                        ? const _EmptyProjects()
+                        ? _EmptyProjects()
                         : ProjectDetail(
                             key: ValueKey(selected.id),
                             project: selected,
                             folders: _folders(selected),
                             onEntryOpen: _openEntry,
-                            onCancelDownload: () => ref
-                                .read(projectRepositoryProvider)
-                                .cancelDownload(selected.id),
+                            onCancelDownload: () {
+                              ref
+                                  .read(projectRepositoryProvider)
+                                  .cancelDownload(selected);
+                              ref.invalidate(projectsProvider);
+                            },
                             onPause: () => ref
                                 .read(projectRepositoryProvider)
                                 .pauseDownload(selected.id),
@@ -151,8 +154,7 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen>
                         width: 320,
                         child: ProjectSearchField(
                           value: _query,
-                          onChanged: (value) =>
-                              setState(() => _query = value),
+                          onChanged: (value) => setState(() => _query = value),
                         ),
                       ),
                       Expanded(
@@ -184,23 +186,16 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen>
                     onTap: _toggleCreate,
                     child: AnimatedRotation(
                       turns: _createEntry == null ? 0 : .125,
-                      duration: const Duration(milliseconds: 180),
+                      duration: Duration(milliseconds: 180),
                       curve: Curves.easeOutBack,
                       child: Container(
                         width: 56,
                         height: 56,
                         decoration: BoxDecoration(
-                          color: AppColors.accent,
+                          color: AppColors.of(context).accentFill,
                           borderRadius: BorderRadius.circular(AppColors.radius),
-                          boxShadow: [
-                            BoxShadow(
-                              color: AppColors.accent.withValues(alpha: .34),
-                              blurRadius: 26,
-                              offset: const Offset(0, 10),
-                            ),
-                          ],
                         ),
-                        child: const Icon(
+                        child: Icon(
                           Icons.add_rounded,
                           color: Colors.white,
                           size: 28,
@@ -219,9 +214,9 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen>
 
   Future<List<FolderEntry>> _folders(ProjectInfo project) {
     final folder = project.folderPath;
-    if (folder == null) return Future.value(const []);
+    if (folder == null) return Future.value([]);
     return _folderCache.putIfAbsent(folder, () async {
-      if (!Directory(folder).existsSync()) return const [];
+      if (!Directory(folder).existsSync()) return [];
       return ref.read(projectStoreProvider).listProjectFolders(folder);
     });
   }
@@ -258,7 +253,7 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen>
             showWhenUnlinked: false,
             targetAnchor: Alignment.topRight,
             followerAnchor: Alignment.bottomRight,
-            offset: const Offset(0, -10),
+            offset: Offset(0, -10),
             child: AnimatedBuilder(
               animation: _createAnim,
               builder: (context, child) {
@@ -315,13 +310,12 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen>
     // Auto-create DaVinci project file if using DaVinci editor.
     if (editor == 'davinci' && project.folderPath != null) {
       unawaited(
-        ref
-            .read(davinciServiceProvider)
-            .export(project.folderPath!)
-            .catchError((_) {
-              // Silently ignore if DaVinci unavailable
-              return (exported: false, message: null, drpFilePath: '');
-            }),
+        ref.read(davinciServiceProvider).export(project.folderPath!).catchError(
+          (_) {
+            // Silently ignore if DaVinci unavailable
+            return (exported: false, message: null, drpFilePath: '');
+          },
+        ),
       );
     }
   }
@@ -367,35 +361,24 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen>
     }
   }
 
+  /// Archive the full project, exporting Resolve's project file when available.
   Future<void> _archive(ProjectInfo project) async {
-    final folder = project.folderPath;
-    if (folder == null) return;
-    try {
-      await ref
-          .read(archiverServiceProvider)
-          .archiveProject(
-            folder,
-            ref.read(icloudServiceProvider).archiveFolder,
-            sourceRoot: ref.read(settingsProvider).projectsFolder,
-          );
-      ref.invalidate(projectsProvider);
-      if (mounted) _message('${project.name} offloaded to iCloud.');
-    } catch (error) {
-      if (mounted) _message(error.toString(), error: true);
+    if (ref.read(projectRepositoryProvider).isDownloading(project.id)) {
+      _message('Stop the download before archiving this project.', error: true);
+      return;
     }
-  }
-
-  /// Offload keeping FOOTAGE, so the whole project (media included) goes to
-  /// iCloud — for when links can't be re-fetched later (bad internet). Exports
-  /// the DaVinci project first if Resolve is running, so the .drp travels too.
-  Future<void> _archiveWithFootage(ProjectInfo project) async {
     final folder = project.folderPath;
     if (folder == null) return;
     try {
       if (project.editor == 'davinci' &&
           ref.read(davinciServiceProvider).isResolveRunning()) {
         _message('Exporting DaVinci project…');
-        await ref.read(davinciServiceProvider).export(folder);
+        final result = await ref.read(davinciServiceProvider).export(folder);
+        if (!result.exported) {
+          throw StateError(
+            result.message ?? 'Could not export the DaVinci project.',
+          );
+        }
       }
       if (mounted) _message('Offloading ${project.name} with footage…');
       await ref
@@ -404,7 +387,6 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen>
             folder,
             ref.read(icloudServiceProvider).archiveFolder,
             sourceRoot: ref.read(settingsProvider).projectsFolder,
-            keepFootage: true,
           );
       ref.invalidate(projectsProvider);
       if (mounted) {
@@ -426,8 +408,7 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen>
             ref.read(settingsProvider).projectsFolder,
           );
       ref.invalidate(projectsProvider);
-      // Offload strips FOOTAGE to save space; re-fetch it from the saved links
-      // so restoring on any machine brings the media back too.
+      // Older archives may lack footage; use saved links to recover it.
       final restored = ref.read(projectStoreProvider).readProjectInfo(dest);
       if (restored != null &&
           restored.footageUrls.isNotEmpty &&
@@ -438,7 +419,9 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen>
               restored.copyWith(folderPath: dest),
               (_) => ref.invalidate(projectsProvider),
             );
-        if (mounted) _message('${project.name} restored — re-downloading footage…');
+        if (mounted) {
+          _message('${project.name} restored — re-downloading footage…');
+        }
       } else if (mounted) {
         _message('${project.name} restored.');
       }
@@ -450,59 +433,51 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen>
   bool _hasFootage(String projectFolder) {
     final dir = Directory('$projectFolder${Platform.pathSeparator}FOOTAGE');
     return dir.existsSync() &&
-        dir.listSync(recursive: true, followLinks: false).whereType<File>().isNotEmpty;
-  }
-
-  bool _isPastMonth(ProjectInfo project) {
-    const months = [
-      'JANUARY',
-      'FEBRUARY',
-      'MARCH',
-      'APRIL',
-      'MAY',
-      'JUNE',
-      'JULY',
-      'AUGUST',
-      'SEPTEMBER',
-      'OCTOBER',
-      'NOVEMBER',
-      'DECEMBER',
-    ];
-    final year = int.tryParse(project.year ?? '');
-    final month = months.indexOf(project.month?.toUpperCase() ?? '');
-    if (year == null || month < 0) return false;
-    final now = DateTime.now();
-    return DateTime(year, month + 1).isBefore(DateTime(now.year, now.month));
+        dir
+            .listSync(recursive: true, followLinks: false)
+            .whereType<File>()
+            .isNotEmpty;
   }
 
   Future<void> _delete(ProjectInfo project) async {
-    if (_isPastMonth(project)) {
-      _message('Projects from previous months cannot be deleted.');
+    if (ref.read(projectRepositoryProvider).isDownloading(project.id)) {
+      _message('Stop the download before deleting this project.', error: true);
       return;
     }
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Delete project?'),
+        title: Text('Delete project?'),
         content: Text(
-          'The folder "${project.name}" will be deleted from disk.',
+          'Move "${project.name}" to the Recycle Bin? Files can be recovered there. '
+          'Deleting an iCloud project also affects its cloud copy.',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
+            child: Text('Cancel'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: AppColors.bad),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.of(context).bad,
+            ),
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete'),
+            child: Text('Delete'),
           ),
         ],
       ),
     );
     if (confirmed != true || project.folderPath == null) return;
     try {
-      await Directory(project.folderPath!).delete(recursive: true);
+      await ref
+          .read(projectStoreProvider)
+          .deleteProject(
+            project.folderPath!,
+            roots: [
+              ref.read(settingsProvider).projectsFolder,
+              ...ref.read(icloudServiceProvider).archiveSearchFolders,
+            ],
+          );
       setState(() => _selectedId = null);
       ref.invalidate(projectsProvider);
     } catch (error) {
@@ -515,34 +490,35 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen>
     final archived =
         project.status == ProjectStatus.archive ||
         project.status == ProjectStatus.incloud;
-    final overlay =
-        Overlay.of(context).context.findRenderObject() as RenderBox;
+    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
     final selected = await showMenu<String>(
       context: context,
-      color: AppColors.card2,
+      color: AppColors.of(context).card2,
       position: RelativeRect.fromRect(
-        position & const Size(40, 40),
+        position & Size(40, 40),
         Offset.zero & overlay.size,
       ),
       items: [
-        PopupMenuItem(value: 'open', child: Text(archived ? 'Restore' : 'Open')),
-        const PopupMenuItem(value: 'link', child: Text('Add footage link…')),
+        PopupMenuItem(
+          value: 'open',
+          child: Text(archived ? 'Restore' : 'Open'),
+        ),
+        PopupMenuItem(value: 'link', child: Text('Add footage link…')),
         if (project.editor == 'davinci')
-          const PopupMenuItem(
+          PopupMenuItem(
             value: 'drp',
             child: Text('Export DaVinci project (.drp)'),
           ),
-        const PopupMenuItem(value: 'reveal', child: Text('Show in Explorer')),
+        PopupMenuItem(value: 'reveal', child: Text('Show in Explorer')),
         if (!archived)
-          const PopupMenuItem(value: 'offload', child: Text('Offload to iCloud')),
-        if (!archived)
-          const PopupMenuItem(
-            value: 'offload_footage',
-            child: Text('Offload with footage'),
-          ),
-        const PopupMenuItem(
+          PopupMenuItem(value: 'offload', child: Text('Offload to iCloud')),
+
+        PopupMenuItem(
           value: 'delete',
-          child: Text('Delete', style: TextStyle(color: AppColors.bad)),
+          child: Text(
+            'Delete',
+            style: TextStyle(color: AppColors.of(context).bad),
+          ),
         ),
       ],
     );
@@ -558,8 +534,6 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen>
         _reveal(project);
       case 'offload':
         _archive(project);
-      case 'offload_footage':
-        _archiveWithFootage(project);
       case 'delete':
         _delete(project);
     }
@@ -571,12 +545,12 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen>
     final url = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: AppColors.card2,
-        title: const Text('Add footage link'),
+        backgroundColor: AppColors.of(context).card2,
+        title: Text('Add footage link'),
         content: TextField(
           controller: controller,
           autofocus: true,
-          decoration: const InputDecoration(
+          decoration: InputDecoration(
             hintText: 'Google Drive / Dropbox / direct URL',
           ),
           onSubmitted: (v) => Navigator.pop(context, v),
@@ -584,20 +558,20 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen>
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            child: Text('Cancel'),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, controller.text),
-            child: const Text('Add'),
+            child: Text('Add'),
           ),
         ],
       ),
     );
     if (url == null || url.trim().isEmpty || !mounted) return;
     try {
-      ref
-          .read(projectRepositoryProvider)
-          .addFootage(project, [url], (_) => ref.invalidate(projectsProvider));
+      ref.read(projectRepositoryProvider).addFootage(project, [
+        url,
+      ], (_) => ref.invalidate(projectsProvider));
       setState(() => _selectedId = project.id);
     } catch (error) {
       if (mounted) _message(error.toString(), error: true);
@@ -622,7 +596,9 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen>
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(text),
-        backgroundColor: error ? AppColors.bad : AppColors.card2,
+        backgroundColor: error
+            ? AppColors.of(context).bad
+            : AppColors.of(context).card2,
       ),
     );
   }
@@ -632,17 +608,21 @@ class _EmptyProjects extends StatelessWidget {
   const _EmptyProjects();
 
   @override
-  Widget build(BuildContext context) => const Center(
+  Widget build(BuildContext context) => Center(
     child: Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(Icons.folder_open_rounded, size: 48, color: AppColors.dim),
+        Icon(
+          Icons.folder_open_rounded,
+          size: 48,
+          color: AppColors.of(context).dim,
+        ),
         SizedBox(height: 12),
         Text('No projects yet', style: TextStyle(fontSize: 17)),
         SizedBox(height: 5),
         Text(
           'Press "+" to create your first project.',
-          style: TextStyle(color: AppColors.dim, fontSize: 13),
+          style: TextStyle(color: AppColors.of(context).dim, fontSize: 13),
         ),
       ],
     ),
@@ -659,9 +639,9 @@ class _ErrorState extends StatelessWidget {
     child: Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(error, style: const TextStyle(color: AppColors.bad)),
-        const SizedBox(height: 10),
-        FilledButton(onPressed: onRetry, child: const Text('Retry')),
+        Text(error, style: TextStyle(color: AppColors.of(context).bad)),
+        SizedBox(height: 10),
+        FilledButton(onPressed: onRetry, child: Text('Retry')),
       ],
     ),
   );

@@ -18,7 +18,7 @@ class AppTabBar extends ConsumerWidget {
       height: 48,
       child: Row(
         children: [
-          const SizedBox(width: 8),
+          SizedBox(width: 8),
           _TabButton(
             icon: Icons.folder_rounded,
             selected: active == AppTab.projects,
@@ -33,11 +33,24 @@ class AppTabBar extends ConsumerWidget {
             onTap: () =>
                 ref.read(activeTabProvider.notifier).state = AppTab.settings,
           ),
-          const Expanded(
-            child: DragToMoveArea(child: SizedBox(height: double.infinity)),
+          Expanded(
+            child: DragToMoveArea(
+              child: Align(
+                alignment: Alignment.center,
+                child: Text(
+                  'edithub',
+                  style: TextStyle(
+                    fontFamily: 'UnifrakturCook',
+                    fontSize: 28,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.of(context).txt,
+                  ),
+                ),
+              ),
+            ),
           ),
           const _ICloudStatus(),
-          const SizedBox(width: 6),
+          SizedBox(width: 6),
           const _WindowButton(icon: Icons.remove, kind: _WindowAction.minimize),
           const _WindowButton(
             icon: Icons.crop_square_rounded,
@@ -78,23 +91,25 @@ class _TabButton extends StatelessWidget {
       child: PressableScale(
         onTap: onTap,
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
+          duration: Duration(milliseconds: 180),
           curve: Curves.easeOutBack,
           width: 42,
           height: 38,
           margin: const EdgeInsets.symmetric(horizontal: 2),
           decoration: BoxDecoration(
-            color: selected ? AppColors.card2 : Colors.transparent,
+            color: selected ? AppColors.of(context).card2 : Colors.transparent,
             borderRadius: BorderRadius.circular(AppColors.radiusSm),
           ),
           child: AnimatedScale(
-            scale: selected ? 1.08 : 1,
-            duration: const Duration(milliseconds: 200),
+            scale: 1,
+            duration: Duration(milliseconds: 200),
             curve: Curves.easeOutBack,
             child: Icon(
               icon,
               size: 20,
-              color: selected ? AppColors.txt : AppColors.dim,
+              color: selected
+                  ? AppColors.of(context).txt
+                  : AppColors.of(context).dim,
             ),
           ),
         ),
@@ -122,15 +137,17 @@ class _ICloudStatus extends ConsumerWidget {
             Icon(
               syncing ? Icons.cloud_queue_rounded : Icons.cloud_done_rounded,
               size: 18,
-              color: syncing ? AppColors.accent : AppColors.dim,
+              color: syncing
+                  ? AppColors.of(context).accent
+                  : AppColors.of(context).dim,
             ),
             if (syncing)
-              const SizedBox(
+              SizedBox(
                 width: 26,
                 height: 26,
                 child: CircularProgressIndicator(
                   strokeWidth: 1.6,
-                  color: AppColors.accent,
+                  color: AppColors.of(context).accent,
                 ),
               ),
           ],
@@ -179,18 +196,18 @@ class _WindowButtonState extends State<_WindowButton> {
         onTap: _run,
         pressedScale: .82,
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 130),
+          duration: Duration(milliseconds: 130),
           width: 46,
           height: 48,
           color: _hover
               ? (isClose
-                    ? AppColors.bad.withValues(alpha: .85)
-                    : AppColors.card2)
+                    ? AppColors.of(context).bad.withValues(alpha: .85)
+                    : AppColors.of(context).card2)
               : Colors.transparent,
           child: Icon(
             widget.icon,
             size: 18,
-            color: _hover && isClose ? Colors.white : AppColors.dim,
+            color: _hover && isClose ? Colors.white : AppColors.of(context).dim,
           ),
         ),
       ),

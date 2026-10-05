@@ -56,7 +56,7 @@ class _NewProjectPopoverState extends State<NewProjectPopover> {
     try {
       await widget.onCreate(
         _name.text.trim(),
-        url.isEmpty ? const [] : [url],
+        url.isEmpty ? [] : [url],
         _editor,
       );
       widget.onClose();
@@ -70,7 +70,7 @@ class _NewProjectPopoverState extends State<NewProjectPopover> {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      key: const Key('project-create-popover'),
+      key: Key('project-create-popover'),
       width: 300,
       child: GlassSurface(
         // Match the header strip's frosted glass (blur/scrim/frost), just
@@ -97,10 +97,10 @@ class _NewProjectPopoverState extends State<NewProjectPopover> {
                           : 'davinci',
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  SizedBox(width: 8),
                   Expanded(
                     child: _Field(
-                      key: const Key('project-name'),
+                      key: Key('project-name'),
                       controller: _name,
                       hint: 'Name',
                       autofocus: true,
@@ -108,21 +108,24 @@ class _NewProjectPopoverState extends State<NewProjectPopover> {
                   ),
                 ],
               ),
-              const SizedBox(height: 8),
+              SizedBox(height: 8),
               _Field(
-                key: const Key('project-url'),
+                key: Key('project-url'),
                 controller: _url,
                 hint: 'Footage',
                 onSubmitted: (_) => _create(),
               ),
               if (_error != null) ...[
-                const SizedBox(height: 8),
+                SizedBox(height: 8),
                 Text(
                   _error!,
-                  style: const TextStyle(color: AppColors.bad, fontSize: 12),
+                  style: TextStyle(
+                    color: AppColors.of(context).bad,
+                    fontSize: 12,
+                  ),
                 ),
               ],
-              const SizedBox(height: 8),
+              SizedBox(height: 8),
               _CreateButton(loading: _loading, onTap: _create),
             ],
           ),
@@ -154,11 +157,11 @@ class _Field extends StatelessWidget {
       autofocus: autofocus,
       onSubmitted: onSubmitted,
       textAlignVertical: TextAlignVertical.center,
-      style: const TextStyle(fontSize: 14),
+      style: TextStyle(fontSize: 14),
       decoration: InputDecoration(
         hintText: hint,
         filled: true,
-        fillColor: AppColors.fill2,
+        fillColor: AppColors.of(context).fill2,
         contentPadding: const EdgeInsets.symmetric(horizontal: 14),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppColors.radiusSm),
@@ -170,7 +173,10 @@ class _Field extends StatelessWidget {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppColors.radiusSm),
-          borderSide: const BorderSide(color: AppColors.accent, width: 1.4),
+          borderSide: BorderSide(
+            color: AppColors.of(context).accent,
+            width: 1.4,
+          ),
         ),
       ),
     ),
@@ -189,11 +195,11 @@ class _CreateButton extends StatelessWidget {
       height: _kFieldHeight,
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: AppColors.accent,
+        color: AppColors.of(context).accent,
         borderRadius: BorderRadius.circular(AppColors.radiusSm),
       ),
       child: loading
-          ? const SizedBox(
+          ? SizedBox(
               width: 16,
               height: 16,
               child: CircularProgressIndicator(
@@ -201,7 +207,7 @@ class _CreateButton extends StatelessWidget {
                 color: Colors.white,
               ),
             )
-          : const Text(
+          : Text(
               'Create',
               style: TextStyle(
                 color: Colors.white,
@@ -228,14 +234,17 @@ class _EditorToggle extends StatelessWidget {
         height: _kFieldHeight,
         padding: const EdgeInsets.all(9),
         decoration: BoxDecoration(
-          color: AppColors.fill2,
+          color: AppColors.of(context).fill2,
           borderRadius: BorderRadius.circular(AppColors.radiusSm),
           border: Border.all(color: Colors.white.withValues(alpha: .16)),
         ),
         child: SvgPicture.asset(
           _editorLogos[editor]!,
           fit: BoxFit.contain,
-          colorFilter: const ColorFilter.mode(AppColors.txt, BlendMode.srcIn),
+          colorFilter: ColorFilter.mode(
+            AppColors.of(context).txt,
+            BlendMode.srcIn,
+          ),
         ),
       ),
     ),

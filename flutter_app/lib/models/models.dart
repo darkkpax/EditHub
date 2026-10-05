@@ -43,6 +43,7 @@ class ProjectInfo {
   final List<String> footageUrls;
   final ProjectStatus status;
   final Map<String, double> downloadProgress;
+  final String downloadError;
 
   /// Editor the project targets: 'davinci' or 'premiere'. Drives which NLE the
   /// Open button launches.
@@ -60,6 +61,7 @@ class ProjectInfo {
     this.footageUrls = const [],
     this.status = ProjectStatus.ready,
     this.downloadProgress = const {},
+    this.downloadError = '',
     this.editor = 'davinci',
     this.folderPath,
     this.sizeBytes,
@@ -83,6 +85,7 @@ class ProjectInfo {
           ) ??
           const {},
       editor: (j['editor'] as String?) ?? 'davinci',
+      downloadError: (j['downloadError'] as String?) ?? '',
       folderPath: j['folderPath'] as String?,
       sizeBytes: (j['sizeBytes'] as num?)?.toInt(),
     );
@@ -100,6 +103,7 @@ class ProjectInfo {
     'footageUrls': footageUrls,
     'status': status.value,
     'downloadProgress': downloadProgress,
+    if (downloadError.isNotEmpty) 'downloadError': downloadError,
     'editor': editor,
   };
 
@@ -114,6 +118,7 @@ class ProjectInfo {
     List<String>? footageUrls,
     ProjectStatus? status,
     Map<String, double>? downloadProgress,
+    String? downloadError,
     String? editor,
     String? folderPath,
     int? sizeBytes,
@@ -128,6 +133,7 @@ class ProjectInfo {
       footageUrls: footageUrls ?? this.footageUrls,
       status: status ?? this.status,
       downloadProgress: downloadProgress ?? this.downloadProgress,
+      downloadError: downloadError ?? this.downloadError,
       editor: editor ?? this.editor,
       folderPath: folderPath ?? this.folderPath,
       sizeBytes: sizeBytes ?? this.sizeBytes,
@@ -160,6 +166,7 @@ class AppSettings {
   final int autoArchiveDays;
   final List<String> autoImportPatterns;
   final String icloudPath;
+  final String theme;
 
   const AppSettings({
     required this.projectsFolder,
@@ -170,6 +177,7 @@ class AppSettings {
     required this.autoArchiveDays,
     required this.autoImportPatterns,
     required this.icloudPath,
+    this.theme = 'dark',
   });
 
   factory AppSettings.fromJson(Map<String, dynamic> j, AppSettings defaults) {
@@ -189,6 +197,7 @@ class AppSettings {
               .toList() ??
           defaults.autoImportPatterns,
       icloudPath: (j['icloudPath'] ?? defaults.icloudPath) as String,
+      theme: (j['theme'] as String?) ?? defaults.theme,
     );
   }
 
@@ -201,6 +210,7 @@ class AppSettings {
     'autoArchiveDays': autoArchiveDays,
     'autoImportPatterns': autoImportPatterns,
     'icloudPath': icloudPath,
+    'theme': theme,
   };
 
   AppSettings copyWith({
@@ -212,6 +222,7 @@ class AppSettings {
     int? autoArchiveDays,
     List<String>? autoImportPatterns,
     String? icloudPath,
+    String? theme,
   }) {
     return AppSettings(
       projectsFolder: projectsFolder ?? this.projectsFolder,
@@ -222,6 +233,7 @@ class AppSettings {
       autoArchiveDays: autoArchiveDays ?? this.autoArchiveDays,
       autoImportPatterns: autoImportPatterns ?? this.autoImportPatterns,
       icloudPath: icloudPath ?? this.icloudPath,
+      theme: theme ?? this.theme,
     );
   }
 }

@@ -48,7 +48,7 @@ void main() {
     expect(ProjectStore().listArchivedProjects(archive), hasLength(1));
   });
 
-  test('new archives remove footage and preserve everything else', () async {
+  test('new archives preserve footage and everything else', () async {
     final root = Directory.systemTemp.createTempSync('edithub_archive_');
     addTearDown(() => root.deleteSync(recursive: true));
     final project = Directory(p.join(root.path, 'local', 'Project'))
@@ -85,7 +85,7 @@ void main() {
       'Project',
     );
     expect(Directory(archived).existsSync(), isTrue);
-    expect(Directory(p.join(archived, 'FOOTAGE')).existsSync(), isFalse);
+    expect(Directory(p.join(archived, 'FOOTAGE')).existsSync(), isTrue);
     expect(
       File(p.join(archived, 'READY VIDEOS', 'final.mp4')).readAsStringSync(),
       'final',

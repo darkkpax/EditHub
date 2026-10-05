@@ -1,11 +1,8 @@
 name: Release EditHub
 
-# Push a tag like v1.0.1 to trigger a build + publish to GitHub Releases.
-# The desktop app picks the new version up automatically on next launch.
+# Legacy Electron builds are manual: Flutter owns the v* release tags.
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_dispatch:
 
 permissions:
   contents: write

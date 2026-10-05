@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -49,44 +50,60 @@ bool isNewerVersion(String latest, String current) {
 /// In-app updater that shows an app-styled prompt instead of WinSparkle's
 /// native dialog. Release builds only; no-op elsewhere.
 class UpdaterService {
-  UpdaterService(this.navigatorKey);
-  final GlobalKey<NavigatorState> navigatorKey;
+  UpdaterService([this.navigatorKey]);
+  final GlobalKey<NavigatorState>? navigatorKey;
   bool _prompting = false;
+  Timer? _timer;
 
   void start() {
     if (!kReleaseMode || !Platform.isWindows) return;
-    _check();
-    // Re-check every 6h for long-running sessions.
-    Future.doWhile(() async {
-      await Future<void>.delayed(const Duration(hours: 6));
-      await _check();
-      return true;
-    });
+    check();
+    _timer ??= Timer.periodic(const Duration(hours: 6), (_) => check());
   }
 
-  Future<void> _check() async {
+  void dispose() => _timer?.cancel();
+
+  Future<void> check({BuildContext? context, bool interactive = false}) async {
     if (_prompting) return;
+    _prompting = true;
+    final target = context ?? navigatorKey?.currentContext;
     try {
       final res = await http
           .get(Uri.parse(_feedUrl))
-          .timeout(const Duration(seconds: 20));
-      if (res.statusCode != 200) return;
+          .timeout(Duration(seconds: 20));
+      if (res.statusCode != 200) {
+        throw HttpException('Update server returned HTTP ${res.statusCode}.');
+      }
       final latest = parseAppcast(res.body);
-      if (latest == null) return;
+      if (latest == null) {
+        throw const FormatException('The update feed has no installer.');
+      }
       final current = (await PackageInfo.fromPlatform()).version;
-      if (!isNewerVersion(latest.version, current)) return;
+      if (!isNewerVersion(latest.version, current)) {
+        if (interactive && target != null && target.mounted) {
+          ScaffoldMessenger.of(target).showSnackBar(
+            SnackBar(content: Text('EditHub $current is up to date.')),
+          );
+        }
+        return;
+      }
 
-      final context = navigatorKey.currentContext;
-      if (context == null || !context.mounted) return;
-      _prompting = true;
+      if (target == null || !target.mounted) return;
       await showDialog<void>(
-        context: context,
+        context: target,
+        barrierDismissible: false,
         barrierColor: Colors.black.withValues(alpha: .45),
         builder: (_) => _UpdateDialog(version: latest.version, url: latest.url),
       );
+    } catch (error) {
+      debugPrint('Update check failed: $error');
+      if (interactive && target != null && target.mounted) {
+        ScaffoldMessenger.of(target).showSnackBar(
+          SnackBar(content: Text('Could not check for updates: $error')),
+        );
+      }
+    } finally {
       _prompting = false;
-    } catch (_) {
-      _prompting = false; // never let an update check crash the app
     }
   }
 }
@@ -131,8 +148,16 @@ class _UpdateDialogState extends State<_UpdateDialog> {
   }
 
   Future<File> _download(String url, ValueChanged<double> onProgress) async {
-    final req = http.Request('GET', Uri.parse(url));
-    final res = await req.send();
+    final uri = Uri.parse(url);
+    if (uri.scheme != 'https' ||
+        uri.host != 'github.com' ||
+        !uri.path.startsWith('/darkkpax/EditHub/releases/download/')) {
+      throw const FormatException(
+        'The installer URL is not an EditHub GitHub release.',
+      );
+    }
+    final req = http.Request('GET', uri);
+    final res = await req.send().timeout(const Duration(seconds: 30));
     if (res.statusCode != 200) {
       throw HttpException('HTTP ${res.statusCode}', uri: Uri.parse(url));
     }
@@ -141,12 +166,22 @@ class _UpdateDialogState extends State<_UpdateDialog> {
     final sink = file.openWrite();
     final total = res.contentLength ?? 0;
     var received = 0;
-    await for (final chunk in res.stream) {
-      sink.add(chunk);
-      received += chunk.length;
-      if (total > 0) onProgress(received / total);
+    try {
+      await for (final chunk in res.stream.timeout(
+        const Duration(seconds: 45),
+      )) {
+        sink.add(chunk);
+        received += chunk.length;
+        if (total > 0) onProgress(received / total);
+      }
+    } finally {
+      await sink.close();
     }
-    await sink.close();
+    if (received == 0 || (total > 0 && received != total)) {
+      throw const HttpException(
+        'Installer download is incomplete. Retry the update.',
+      );
+    }
     return file;
   }
 
@@ -176,21 +211,23 @@ class _UpdateDialogState extends State<_UpdateDialog> {
                       height: 38,
                       alignment: Alignment.center,
                       decoration: BoxDecoration(
-                        color: AppColors.accent.withValues(alpha: .16),
+                        color: AppColors.of(
+                          context,
+                        ).accent.withValues(alpha: .16),
                         borderRadius: BorderRadius.circular(11),
                       ),
-                      child: const Icon(
+                      child: Icon(
                         Icons.rocket_launch_rounded,
-                        color: AppColors.accent,
+                        color: AppColors.of(context).accent,
                         size: 20,
                       ),
                     ),
-                    const SizedBox(width: 12),
+                    SizedBox(width: 12),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
+                          Text(
                             'Update available',
                             style: TextStyle(
                               fontSize: 15,
@@ -199,8 +236,8 @@ class _UpdateDialogState extends State<_UpdateDialog> {
                           ),
                           Text(
                             'Version ${widget.version}',
-                            style: const TextStyle(
-                              color: AppColors.dim,
+                            style: TextStyle(
+                              color: AppColors.of(context).dim,
                               fontSize: 12,
                             ),
                           ),
@@ -210,20 +247,23 @@ class _UpdateDialogState extends State<_UpdateDialog> {
                   ],
                 ),
                 if (_error != null) ...[
-                  const SizedBox(height: 14),
+                  SizedBox(height: 14),
                   Text(
                     _error!,
-                    style: const TextStyle(color: AppColors.bad, fontSize: 12),
+                    style: TextStyle(
+                      color: AppColors.of(context).bad,
+                      fontSize: 12,
+                    ),
                   ),
                 ],
-                const SizedBox(height: 18),
+                SizedBox(height: 18),
                 if (downloading)
                   ClipRRect(
                     borderRadius: BorderRadius.circular(99),
                     child: LinearProgressIndicator(
                       value: _progress == 0 ? null : _progress,
                       minHeight: 8,
-                      backgroundColor: AppColors.fill4,
+                      backgroundColor: AppColors.of(context).fill4,
                     ),
                   )
                 else
@@ -232,16 +272,13 @@ class _UpdateDialogState extends State<_UpdateDialog> {
                     children: [
                       TextButton(
                         onPressed: () => Navigator.of(context).pop(),
-                        child: const Text(
+                        child: Text(
                           'Later',
-                          style: TextStyle(color: AppColors.dim),
+                          style: TextStyle(color: AppColors.of(context).dim),
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      FilledButton(
-                        onPressed: _install,
-                        child: const Text('Install'),
-                      ),
+                      SizedBox(width: 8),
+                      FilledButton(onPressed: _install, child: Text('Install')),
                     ],
                   ),
               ],

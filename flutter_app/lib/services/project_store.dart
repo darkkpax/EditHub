@@ -187,7 +187,13 @@ class ProjectStore {
       if (depth > 3) return;
       final dir = Directory(folder);
       if (!dir.existsSync()) return;
-      for (final entry in dir.listSync(followLinks: false)) {
+      List<FileSystemEntity> entries;
+      try {
+        entries = dir.listSync(followLinks: false);
+      } on FileSystemException {
+        return;
+      }
+      for (final entry in entries) {
         if (entry is! Directory) continue;
         final name = p.basename(entry.path);
         if (name.startsWith('.') ||
@@ -239,6 +245,46 @@ class ProjectStore {
       }
     } catch (_) {}
     return total;
+  }
+
+  /// Only an explicitly selected project can be sent to the Windows recycle bin.
+  Future<void> deleteProject(
+    String folderPath, {
+    required List<String> roots,
+  }) async {
+    final target = p.normalize(p.absolute(folderPath));
+    final allowed = roots.any(
+      (root) =>
+          root.isNotEmpty &&
+          p.isWithin(p.normalize(p.absolute(root)), target) &&
+          listProjects(root).any(
+            (project) =>
+                project.folderPath != null &&
+                p.equals(p.normalize(p.absolute(project.folderPath!)), target),
+          ),
+    );
+    if (!allowed) {
+      throw FileSystemException(
+        'Not a project in the selected folders.',
+        target,
+      );
+    }
+    if (!Platform.isWindows) {
+      throw UnsupportedError('Recycle Bin is only supported on Windows.');
+    }
+    final result = await Process.run(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        r"$ErrorActionPreference = 'Stop'; Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($env:EDITHUB_DELETE_PATH, [Microsoft.VisualBasic.FileIO.UIOption]::OnlyErrorDialogs, [Microsoft.VisualBasic.FileIO.RecycleOption]::SendToRecycleBin)",
+      ],
+      environment: {'EDITHUB_DELETE_PATH': target},
+    );
+    if (result.exitCode != 0) {
+      throw FileSystemException(result.stderr.toString(), target);
+    }
   }
 
   /// Removes orphaned `__extracting_*` temp folders from interrupted zip

@@ -18,7 +18,6 @@ class ArchiverService {
     String projectFolder,
     String archiveFolder, {
     String? sourceRoot,
-    bool keepFootage = false,
   }) async {
     final info = store.readProjectInfo(projectFolder);
     final folderName = p.basename(projectFolder);
@@ -38,17 +37,6 @@ class ArchiverService {
 
     final parent = p.dirname(projectFolder);
     _moveDirectory(projectFolder, dest);
-    // Default offload strips FOOTAGE (it re-downloads from links on restore).
-    // keepFootage leaves it in the iCloud copy — used when the media can't be
-    // re-fetched later (e.g. bad internet), so the whole project travels intact.
-    if (!keepFootage) {
-      for (final entry in Directory(dest).listSync(followLinks: false)) {
-        if (entry is Directory &&
-            p.basename(entry.path).toUpperCase() == 'FOOTAGE') {
-          entry.deleteSync(recursive: true);
-        }
-      }
-    }
     _setCloudPinState(dest, onlineOnly: true);
     _removeEmptyAncestors(parent, stopAt: sourceRoot);
   }
@@ -56,10 +44,13 @@ class ArchiverService {
   /// Deletes now-empty parent folders (e.g. `{root}/2026/JULY`) left after a
   /// project moves out, stopping at the first non-empty dir or at [stopAt].
   void _removeEmptyAncestors(String dir, {String? stopAt}) {
-    final floor = stopAt == null ? null : p.normalize(stopAt);
+    if (stopAt == null || !p.isWithin(p.normalize(stopAt), p.normalize(dir))) {
+      return;
+    }
+    final floor = p.normalize(stopAt);
     var current = Directory(dir);
     while (current.existsSync()) {
-      if (floor != null && p.equals(p.normalize(current.path), floor)) break;
+      if (p.equals(p.normalize(current.path), floor)) break;
       try {
         if (current.listSync(followLinks: false).isNotEmpty) break;
         final parent = current.parent;
@@ -93,13 +84,31 @@ class ArchiverService {
         '${folderName}_restored_${DateTime.now().millisecondsSinceEpoch}',
       );
     }
-    _moveDirectory(archivePath, dest);
+    _copyDirectory(Directory(archivePath), Directory(dest));
+    final info = store.readProjectInfo(dest);
+    if (info != null) {
+      store.writeProjectInfo(
+        dest,
+        info.copyWith(
+          status: info.status == ProjectStatus.paused
+              ? ProjectStatus.paused
+              : ProjectStatus.ready,
+        ),
+      );
+    }
     _setCloudPinState(dest, onlineOnly: false);
     return dest;
   }
 
   /// Rename when possible (same volume), otherwise copy then delete the source.
   void _moveDirectory(String from, String to) {
+    if (p.equals(p.absolute(from), p.absolute(to)) ||
+        p.isWithin(p.absolute(from), p.absolute(to))) {
+      throw FileSystemException(
+        'Archive must be outside the project folder.',
+        to,
+      );
+    }
     final src = Directory(from);
     try {
       src.renameSync(to);
@@ -119,6 +128,11 @@ class ArchiverService {
         _copyDirectory(entity, Directory(newPath));
       } else if (entity is File) {
         entity.copySync(newPath);
+      } else {
+        throw FileSystemException(
+          'Cannot safely copy a linked project entry.',
+          entity.path,
+        );
       }
     }
   }
