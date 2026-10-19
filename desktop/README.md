@@ -17,7 +17,7 @@ npm run build
 npm run tauri build
 ```
 
-установщик: `src-tauri/target/release/bundle/nsis/EditHub_2.3.0_x64-setup.exe`.
+установщик: `src-tauri/target/release/bundle/nsis/EditHub_2.3.1_x64-setup.exe`.
 
 ## совместимость
 

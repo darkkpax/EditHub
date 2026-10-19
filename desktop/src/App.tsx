@@ -50,6 +50,7 @@ import {
 import { FrostedSelection } from "./components/frosted-selection";
 import { ScrollGlass } from "./components/scroll-glass";
 import { useAppUpdater } from "./updater";
+import { version as appVersion } from "../package.json";
 import { Button } from "./components/ui/button";
 import { Dialog, DialogContent } from "./components/ui/dialog";
 
@@ -1092,7 +1093,7 @@ function SettingsScreen({
         <ThemePicker />
         <section className="settings-section">
           <h2>EditHub</h2>
-          <p>2.3.0 · {updater.status}</p>
+          <p>{appVersion} — {updater.status}</p>
           <Button variant="outline" disabled={!native || updater.busy} onClick={() => void updater.checkNow()}>
             Check for updates
           </Button>
