@@ -17,7 +17,7 @@ npm run build
 npm run tauri build
 ```
 
-установщик: `src-tauri/target/release/bundle/nsis/EditHub_2.3.1_x64-setup.exe`.
+установщик: `src-tauri/target/release/bundle/nsis/EditHub_2.3.2_x64-setup.exe`.
 
 ## совместимость
 
@@ -100,3 +100,6 @@ To publish: bump the version in package.json, package-lock.json, Cargo.toml, Car
 GitHub Actions builds the installer and publishes latest.json and its signature
 TAURI_SIGNING_PRIVATE_KEY is stored in repository Actions secrets, never in git
 Local signing key backup: ~/.edithub-signing/edithub-updater.key ? preserve it for future releases
+
+2.3.2: repeated launches restore the existing window, including minimized or tray-hidden windows
+Regression check (close running EditHub first): `powershell -NoProfile -File scripts/single-instance-smoke.ps1` after a debug build
