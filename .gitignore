@@ -10,3 +10,6 @@ windows/build/
 # Local secrets (never commit) and compiled binaries
 SECRETS.local.md
 build-direct/
+
+# leftover local Flutter caches; tracked Flutter source was removed
+flutter_app/
