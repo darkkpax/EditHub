@@ -1,0 +1,53 @@
+name: Release EditHub for macOS
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+          - target: x86_64-apple-darwin
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop-macos/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: desktop-macos
+
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          # Ad-hoc signing prevents macOS from marking the downloaded ARM build as damaged.
+          APPLE_SIGNING_IDENTITY: "-"
+        with:
+          projectPath: desktop-macos
+          tagName: v__VERSION__
+          releaseName: EditHub v__VERSION__
+          releaseBody: macOS installer and automatic update package.
+          releaseDraft: false
+          prerelease: false
+          args: --target ${{ matrix.target }}
+          releaseAssetNamePattern: EditHub_[version]_[platform]_[arch][ext]
+          uploadUpdaterJson: true
