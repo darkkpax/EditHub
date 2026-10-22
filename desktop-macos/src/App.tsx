@@ -333,6 +333,21 @@ export default function App() {
   const all = projects.data || [];
   const filtered = filterProjects(all, ui.filter, ui.search);
   const projectGroups = groupByCreatedMonth(filtered);
+  const [visibleMonth, setVisibleMonth] = useState("");
+  useEffect(() => {
+    const viewport = document.querySelector<HTMLElement>(".project-list .scroll-viewport");
+    if (!viewport) return;
+    const updateMonth = () => {
+      const labels = [...viewport.querySelectorAll<HTMLElement>("[data-project-month]")];
+      const top = viewport.getBoundingClientRect().top;
+      const visible = labels.reduce<HTMLElement | undefined>((current, label) =>
+        label.getBoundingClientRect().top <= top + 3 ? label : current, labels[0]);
+      setVisibleMonth(visible?.dataset.projectMonth || labels[0]?.dataset.projectMonth || "");
+    };
+    updateMonth();
+    viewport.addEventListener("scroll", updateMonth, { passive: true });
+    return () => viewport.removeEventListener("scroll", updateMonth);
+  }, [projectGroups]);
   const selected = filtered.find((p) => p.id === ui.selected) || filtered[0];
   useEffect(() => {
     if (native)
@@ -431,6 +446,7 @@ export default function App() {
                   onChange={(e) => ui.setSearch(e.target.value)}
                 />
               </label>
+              {visibleMonth && <div className="sidebar-month-indicator">{visibleMonth}</div>}
             </div>
 
             {projects.isLoading ? (
@@ -440,8 +456,7 @@ export default function App() {
               </div>
             ) : filtered.length ? (
               projectGroups.map((group) => (
-                <section className="project-month-group" key={group.id}>
-                  <h3 className="project-month-heading">{group.label}</h3>
+                <section className="project-month-group" key={group.id} data-project-month={group.label}>
                   {group.projects.map((p) => (
                     <motion.button
                   layout="position"

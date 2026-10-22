@@ -159,6 +159,14 @@ fn project_at(path: &Path, year: Option<&str>, month: Option<&str>) -> Result<Va
     if info["month"].is_null() {
         info["month"] = json!(month);
     }
+    // Imported projects did not have an EditHub manifest. The filesystem's
+    // creation date is the only reliable creation date for those folders and
+    // also prevents first-run adoption from making every project look new.
+    if let Ok(metadata) = fs::metadata(path) {
+        if let Ok(created) = metadata.created().or_else(|_| metadata.modified()) {
+            info["createdAt"] = json!(chrono::DateTime::<Utc>::from(created).to_rfc3339());
+        }
+    }
     Ok(info)
 }
 fn scan(root: &Path) -> Result<Vec<Value>> {
@@ -235,8 +243,12 @@ pub fn adopt_library(root: &Path) -> Result<usize> {
             continue;
         }
         project["status"] = json!("ready");
-        project["createdAt"] = json!(Utc::now().to_rfc3339());
-        project["lastOpenedAt"] = json!(Utc::now().to_rfc3339());
+        if !project["createdAt"].as_str().is_some_and(|value| !value.is_empty()) {
+            project["createdAt"] = json!(Utc::now().to_rfc3339());
+        }
+        if !project["lastOpenedAt"].as_str().is_some_and(|value| !value.is_empty()) {
+            project["lastOpenedAt"] = project["createdAt"].clone();
+        }
         project.as_object_mut().unwrap().remove("folderPath");
         write_json(&manifest, &project)?;
         adopted += 1;

@@ -2343,26 +2343,18 @@ svg {
 .project-month-group {
   position: relative;
 }
-.project-month-heading {
-  position: sticky;
-  top: var(--scroll-sticky-top, 0px);
-  z-index: 5;
+.sidebar-month-indicator {
   display: flex;
   align-items: center;
-  height: 38px;
-  margin: 0 -4px 3px;
-  padding: 0 13px;
+  height: 28px;
+  padding: 8px 12px 0;
   color: var(--muted);
   font-size: 11px;
   font-weight: 650;
   letter-spacing: 0.01em;
-  background: color-mix(in srgb, var(--sticky-frost) 82%, transparent);
-  backdrop-filter: blur(26px) saturate(60%);
-  box-shadow: 0 12px 22px color-mix(in srgb, var(--bg) 12%, transparent);
+  animation: month-label-in 160ms cubic-bezier(0.25, 1, 0.5, 1);
 }
-.project-month-group + .project-month-group .project-month-heading {
-  margin-top: 7px;
-}
+@keyframes month-label-in { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: translateY(0); } }
 .project-drop-target {
   position: absolute;
   inset: 18px 24px;
@@ -2385,6 +2377,7 @@ svg {
 @keyframes drop-target-in { from { opacity: 0; transform: scale(.985); } to { opacity: 1; transform: scale(1); } }
 @media (prefers-reduced-motion: reduce) {
   .project-drop-target { animation: none; }
+  .sidebar-month-indicator { animation: none; }
 }
 .sidebar-controls {
   flex-shrink: 0;
