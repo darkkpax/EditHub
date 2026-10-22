@@ -303,6 +303,69 @@ pub fn entries(path: &Path) -> Result<Vec<Value>> {
     });
     Ok(result)
 }
+fn unused_destination(parent: &Path, source: &Path) -> Result<PathBuf> {
+    let name = source
+        .file_name()
+        .filter(|name| !name.is_empty())
+        .ok_or("Dropped item has no filename")?;
+    let direct = parent.join(name);
+    if !direct.exists() {
+        return Ok(direct);
+    }
+    let stem = source.file_stem().unwrap_or(name).to_string_lossy();
+    let extension = source
+        .extension()
+        .filter(|extension| !extension.is_empty())
+        .map(|extension| format!(".{}", extension.to_string_lossy()))
+        .unwrap_or_default();
+    for number in 2..10_000 {
+        let candidate = parent.join(format!("{stem} {number}{extension}"));
+        if !candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+    Err("Too many files with the same name in this folder".into())
+}
+fn copy_into(parent: &Path, source: &Path) -> Result<()> {
+    let source_metadata = fs::symlink_metadata(source).map_err(|e| e.to_string())?;
+    if source_metadata.file_type().is_symlink() {
+        return Err("Symbolic links cannot be imported".into());
+    }
+    let source = source.canonicalize().map_err(|e| e.to_string())?;
+    let target = unused_destination(parent, &source)?;
+    if source_metadata.is_dir() {
+        copy_tree(&source, &target)
+    } else if source_metadata.is_file() {
+        fs::copy(&source, &target).map(|_| ()).map_err(|e| e.to_string())
+    } else {
+        Err("Only files and folders can be imported".into())
+    }
+}
+pub fn import_paths(id: &str, relative: &str, paths: &[String]) -> Result<usize> {
+    if paths.is_empty() {
+        return Err("Drop at least one file".into());
+    }
+    let project = find(id)?;
+    if project["status"] == "archive" {
+        return Err("Restore the project before importing files".into());
+    }
+    let root = path_of(&project)?.canonicalize().map_err(|e| e.to_string())?;
+    let destination = validated_subpath(id, relative)?;
+    if !destination.is_dir() {
+        return Err("Open a project folder before dropping files".into());
+    }
+    let mut imported = 0;
+    for raw in paths {
+        let source = PathBuf::from(raw);
+        let canonical = source.canonicalize().map_err(|e| e.to_string())?;
+        if canonical.starts_with(&root) {
+            return Err("This item is already inside the project".into());
+        }
+        copy_into(&destination, &source)?;
+        imported += 1;
+    }
+    Ok(imported)
+}
 pub fn known_subpath(
     id: &str,
     project: &Path,
@@ -469,5 +532,19 @@ mod tests {
         assert_eq!(adopt_library(tmp.path()).unwrap(), 1);
         assert!(dir.join(".edithub.json").is_file());
         assert_eq!(adopt_library(tmp.path()).unwrap(), 0);
+    }
+    #[test]
+    fn copies_dropped_files_without_overwriting() {
+        let tmp = tempfile::tempdir().unwrap();
+        let source = tmp.path().join("source/clip.mov");
+        let destination = tmp.path().join("destination");
+        fs::create_dir_all(source.parent().unwrap()).unwrap();
+        fs::create_dir_all(&destination).unwrap();
+        fs::write(&source, b"first").unwrap();
+        copy_into(&destination, &source).unwrap();
+        fs::write(&source, b"second").unwrap();
+        copy_into(&destination, &source).unwrap();
+        assert_eq!(fs::read(destination.join("clip.mov")).unwrap(), b"first");
+        assert_eq!(fs::read(destination.join("clip 2.mov")).unwrap(), b"second");
     }
 }

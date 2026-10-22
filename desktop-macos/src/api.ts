@@ -19,6 +19,8 @@ export const api = {
   projects: () => command<Project[]>("list_projects"),
   entries: (id: string, relative = "", folderPath?: string) =>
     command<Entry[]>("project_entries", { id, relative, folderPath }),
+  importFiles: (id: string, relative: string, paths: string[]) =>
+    command<number>("import_project_files", { id, relative, paths }),
   preview: (id: string, folderPath: string) =>
     command<string | null>("project_preview", { id, folderPath }),
   saveSettings: (settings: Settings) =>

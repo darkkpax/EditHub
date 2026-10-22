@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import type { UnlistenFn } from "@tauri-apps/api/event";
 import { AnimatePresence, motion, useInView } from "motion/react";
 import * as Tabs from "@radix-ui/react-tabs";
 import {
@@ -36,6 +37,7 @@ import {
   ExternalLink,
   AlertCircle,
   Pause,
+  Import,
 } from "lucide-react";
 import { api, command, native } from "./api";
 import { useUI } from "./store";
@@ -90,6 +92,39 @@ function date(value: string) {
         month: "short",
         year: "numeric",
       });
+}
+const monthNumbers: Record<string, number> = {
+  JANUARY: 0, FEBRUARY: 1, MARCH: 2, APRIL: 3, MAY: 4, JUNE: 5,
+  JULY: 6, AUGUST: 7, SEPTEMBER: 8, OCTOBER: 9, NOVEMBER: 10, DECEMBER: 11,
+};
+function monthGroup(project: Project) {
+  const created = new Date(project.createdAt);
+  if (!Number.isNaN(created.valueOf())) {
+    return {
+      id: `${created.getFullYear()}-${created.getMonth()}`,
+      order: new Date(created.getFullYear(), created.getMonth(), 1).valueOf(),
+      label: created.toLocaleDateString("en-GB", { month: "long", year: "numeric" }),
+    };
+  }
+  const month = monthNumbers[(project.month || "").toUpperCase()] ?? Number(project.month) - 1;
+  const year = Number(project.year);
+  if (Number.isInteger(month) && month >= 0 && month < 12 && Number.isInteger(year)) {
+    const value = new Date(year, month, 1);
+    return { id: `${year}-${month}`, order: value.valueOf(), label: value.toLocaleDateString("en-GB", { month: "long", year: "numeric" }) };
+  }
+  return { id: "unknown", order: 0, label: "Earlier projects" };
+}
+function groupByCreatedMonth(projects: Project[]) {
+  const groups = new Map<string, { label: string; order: number; projects: Project[] }>();
+  [...projects]
+    .sort((a, b) => monthGroup(b).order - monthGroup(a).order || b.createdAt.localeCompare(a.createdAt))
+    .forEach((project) => {
+      const group = monthGroup(project);
+      const current = groups.get(group.id) || { label: group.label, order: group.order, projects: [] };
+      current.projects.push(project);
+      groups.set(group.id, current);
+    });
+  return [...groups.entries()].map(([id, group]) => ({ id, ...group }));
 }
 function ErrorBox({ error }: { error: unknown }) {
   return (
@@ -297,6 +332,7 @@ export default function App() {
   }, [ui.notice]);
   const all = projects.data || [];
   const filtered = filterProjects(all, ui.filter, ui.search);
+  const projectGroups = groupByCreatedMonth(filtered);
   const selected = filtered.find((p) => p.id === ui.selected) || filtered[0];
   useEffect(() => {
     if (native)
@@ -403,8 +439,11 @@ export default function App() {
                 Loading projects
               </div>
             ) : filtered.length ? (
-              filtered.map((p) => (
-                <motion.button
+              projectGroups.map((group) => (
+                <section className="project-month-group" key={group.id}>
+                  <h3 className="project-month-heading">{group.label}</h3>
+                  {group.projects.map((p) => (
+                    <motion.button
                   layout="position"
                   whileHover={{ x: 3 }}
                   whileTap={{ scale: 0.97 }}
@@ -427,7 +466,9 @@ export default function App() {
                     <span>{statusLabels[p.status] || p.status}</span>
                   </div>
                   <ChevronRight size={13} />
-                </motion.button>
+                    </motion.button>
+                  ))}
+                </section>
               ))
             ) : (
               <p className="sidebar-empty">
@@ -542,6 +583,8 @@ function ProjectDetail({ project: p }: { project: Project }) {
       null,
     );
   const [detailTab, setDetailTab] = useState("files");
+  const [draggingFiles, setDraggingFiles] = useState(false);
+  const [importingFiles, setImportingFiles] = useState(false);
   const entries = useQuery({
     queryKey: ["entries", p.id, p.folderPath, relative],
     queryFn: () => api.entries(p.id, relative, p.folderPath),
@@ -575,6 +618,38 @@ function ProjectDetail({ project: p }: { project: Project }) {
     archived = p.status === "archive";
   const perform = (fn: () => Promise<unknown>) =>
     fn().catch((e) => ui.notify(String(e)));
+  useEffect(() => {
+    if (!native) return;
+    let unlisten: UnlistenFn | undefined;
+    let disposed = false;
+    getCurrentWindow().onDragDropEvent(({ payload }) => {
+      if (payload.type === "enter" || payload.type === "over") {
+        setDraggingFiles(true);
+        return;
+      }
+      if (payload.type === "leave") {
+        setDraggingFiles(false);
+        return;
+      }
+      setDraggingFiles(false);
+      setImportingFiles(true);
+      void api.importFiles(p.id, relative, payload.paths)
+        .then((count) => {
+          client.invalidateQueries({ queryKey: ["entries", p.id] });
+          client.invalidateQueries({ queryKey: ["previews", p.id] });
+          ui.notify(`${count} ${count === 1 ? "file" : "files"} copied to ${relative || "project root"}`);
+        })
+        .catch((error) => ui.notify(String(error)))
+        .finally(() => setImportingFiles(false));
+    }).then((stop) => {
+      if (disposed) stop();
+      else unlisten = stop;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [client, p.id, relative, ui.notify]);
   return (
     <motion.div
       className="project-detail"
@@ -582,6 +657,13 @@ function ProjectDetail({ project: p }: { project: Project }) {
       animate={{ opacity: 1, y: 0 }}
     >
       <ScrollGlass className="project-scroll" resetKey={relative}>
+        {(draggingFiles || importingFiles) && (
+          <div className="project-drop-target" aria-live="polite">
+            <Import size={25} />
+            <strong>{importingFiles ? "Copying files…" : "Drop files here"}</strong>
+            <span>{relative || "Project root"}</span>
+          </div>
+        )}
         <section className="project-hero">
           <ProjectMark project={p} />
           <div className="project-summary">
@@ -1246,7 +1328,7 @@ function SettingsScreen({
                     ? "Connected"
                     : google.data?.hasApiKey
                       ? "API key configured"
-                      : "Public links only"}
+                      : "Connect account for private links"}
               </p>
             </div>
           </div>

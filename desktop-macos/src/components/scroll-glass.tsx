@@ -22,6 +22,7 @@ export function ScrollGlass({
         ? header.offsetHeight + 12
         : 12;
     el.style.scrollPaddingTop = `${inset}px`;
+    el.style.setProperty("--scroll-sticky-top", `${inset}px`);
     const footer = content.current?.lastElementChild;
     el.style.scrollPaddingBottom = `${footer instanceof HTMLElement && footer.classList.contains("sidebar-bottom") ? footer.offsetHeight + 12 : 60}px`;
     const next = {

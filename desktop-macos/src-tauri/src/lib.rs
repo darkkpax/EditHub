@@ -127,6 +127,12 @@ async fn project_entries(
     .map_err(|e| e.to_string())?
 }
 #[tauri::command]
+async fn import_project_files(id: String, relative: String, paths: Vec<String>) -> Result<usize> {
+    tauri::async_runtime::spawn_blocking(move || projects::import_paths(&id, &relative, &paths))
+        .await
+        .map_err(|e| e.to_string())?
+}
+#[tauri::command]
 async fn create_project(
     state: State<'_, Arc<downloads::Downloads>>,
     name: String,
@@ -429,6 +435,7 @@ pub fn run() {
             setup_library,
             list_projects,
             project_entries,
+            import_project_files,
             previews::project_preview,
             create_project,
             start_downloads,
