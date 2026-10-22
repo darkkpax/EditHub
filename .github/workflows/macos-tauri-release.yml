@@ -1,4 +1,4 @@
-name: Release EditHub for macOS
+name: Release EditHub desktop
 
 on:
   push:
@@ -49,5 +49,39 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: --target ${{ matrix.target }}
+          releaseAssetNamePattern: EditHub_[version]_[platform]_[arch][ext]
+          uploadUpdaterJson: true
+
+  release-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop-macos/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: desktop-macos
+
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        with:
+          projectPath: desktop-macos
+          tagName: v__VERSION__
+          releaseName: EditHub v__VERSION__
+          releaseBody: Windows installer and automatic update package.
+          releaseDraft: false
+          prerelease: false
+          args: --target x86_64-pc-windows-msvc --bundles nsis
           releaseAssetNamePattern: EditHub_[version]_[platform]_[arch][ext]
           uploadUpdaterJson: true
