@@ -22,6 +22,7 @@ export interface Settings {
   downloadsFolder: string;
   icloudPath: string;
   davinciPath: string;
+  onboardingComplete?: boolean;
   [key: string]: unknown;
 }
 export interface Progress {

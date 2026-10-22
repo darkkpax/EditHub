@@ -221,6 +221,28 @@ pub fn list() -> Result<Vec<Value>> {
     found.sort_by(|a, b| b["lastOpenedAt"].as_str().cmp(&a["lastOpenedAt"].as_str()));
     Ok(found)
 }
+
+pub fn adopt_library(root: &Path) -> Result<usize> {
+    let mut adopted = 0;
+    for mut project in scan(root)? {
+        let folder = PathBuf::from(
+            project["folderPath"]
+                .as_str()
+                .ok_or("Project folder path missing")?,
+        );
+        let manifest = folder.join(".edithub.json");
+        if manifest.exists() {
+            continue;
+        }
+        project["status"] = json!("ready");
+        project["createdAt"] = json!(Utc::now().to_rfc3339());
+        project["lastOpenedAt"] = json!(Utc::now().to_rfc3339());
+        project.as_object_mut().unwrap().remove("folderPath");
+        write_json(&manifest, &project)?;
+        adopted += 1;
+    }
+    Ok(adopted)
+}
 pub fn find(id: &str) -> Result<Value> {
     list()?
         .into_iter()
@@ -438,5 +460,14 @@ mod tests {
         assert_eq!(result.len(), 1);
         assert_eq!(result[0]["id"], "mac-id");
         assert_eq!(result[0]["footageUrls"][0], "https://example.com/file.mov");
+    }
+    #[test]
+    fn adopts_plain_month_projects_once() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("2026/OCTOBER/Imported project");
+        fs::create_dir_all(&dir).unwrap();
+        assert_eq!(adopt_library(tmp.path()).unwrap(), 1);
+        assert!(dir.join(".edithub.json").is_file());
+        assert_eq!(adopt_library(tmp.path()).unwrap(), 0);
     }
 }

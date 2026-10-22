@@ -1076,6 +1076,16 @@ svg {
   padding: 32px;
   animation: fade-in 0.2s;
 }
+.setup-folder {
+  display: grid;
+  gap: 10px;
+  margin: 22px 0 14px;
+}
+.setup-folder .button:first-child {
+  justify-content: flex-start;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .dialog-heading {
   display: flex;
   align-items: center;

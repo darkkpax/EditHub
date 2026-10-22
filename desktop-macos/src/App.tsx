@@ -99,6 +99,50 @@ function ErrorBox({ error }: { error: unknown }) {
     </div>
   );
 }
+function LibrarySetup({
+  onComplete,
+}: {
+  onComplete: (adopted: number) => void;
+}) {
+  const [folder, setFolder] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const choose = async () => {
+    const selected = await open({ directory: true, multiple: false, title: "Choose your Videos folder" });
+    if (typeof selected === "string") setFolder(selected);
+  };
+  const finish = async () => {
+    if (!folder || saving) return;
+    setSaving(true);
+    setError("");
+    try {
+      const result = await api.setupLibrary(folder);
+      onComplete(result.adopted);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <Dialog open>
+      <DialogContent title="Welcome to EditHub">
+        <p className="muted">Choose the Videos folder created by your previous app. Existing projects will be found and given an EditHub manifest without moving your files.</p>
+        <div className="setup-folder">
+          <Button variant="outline" onClick={() => void choose()} disabled={saving}>
+            <FolderOpen size={17} />
+            {folder || "Choose Videos folder"}
+          </Button>
+          <Button onClick={() => void finish()} disabled={!folder || saving}>
+            {saving ? "Preparing library…" : "Use this folder"}
+          </Button>
+        </div>
+        <p className="muted">If iCloud Drive is enabled on this Mac, EditHub also creates its archive folder there.</p>
+        {error && <ErrorBox error={error} />}
+      </DialogContent>
+    </Dialog>
+  );
+}
 function Empty({
   icon: Icon = FolderOpen,
   title,
@@ -447,6 +491,15 @@ export default function App() {
         </div>
       </div>
       <CreateDialog open={createOpen} onOpenChange={setCreateOpen} />
+      {native && settings.isSuccess && settings.data?.onboardingComplete !== true && (
+        <LibrarySetup
+          onComplete={(adopted) => {
+            void client.invalidateQueries({ queryKey: ["settings"] });
+            void client.invalidateQueries({ queryKey: ["projects"] });
+            ui.notify(adopted ? `Added ${adopted} existing projects` : "Videos folder is ready");
+          }}
+        />
+      )}
       <AnimatePresence>
         {ui.notice && (
           <motion.div

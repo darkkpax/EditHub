@@ -59,6 +59,37 @@ async fn save_settings(
     Ok(current)
 }
 #[tauri::command]
+async fn setup_library(videos_folder: String) -> Result<Value> {
+    let folder = PathBuf::from(videos_folder);
+    if !folder.is_absolute() {
+        return Err("Videos folder path must be absolute".into());
+    }
+    std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
+    let folder = folder.canonicalize().map_err(|e| e.to_string())?;
+    let adopted = tauri::async_runtime::spawn_blocking({
+        let folder = folder.clone();
+        move || projects::adopt_library(&folder)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    let mut settings = projects::settings()?;
+    settings["projectsFolder"] = json!(folder.to_string_lossy().to_string());
+    settings["onboardingComplete"] = json!(true);
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(home) = dirs::home_dir() {
+            let drive = home.join("Library/Mobile Documents/com~apple~CloudDocs");
+            if drive.is_dir() {
+                std::fs::create_dir_all(drive.join("edithub/Videos"))
+                    .map_err(|e| e.to_string())?;
+                settings["icloudPath"] = json!(drive.to_string_lossy().to_string());
+            }
+        }
+    }
+    projects::write_json(&projects::config_dir().join("settings.json"), &settings)?;
+    Ok(json!({"settings":settings,"adopted":adopted}))
+}
+#[tauri::command]
 async fn list_projects(state: State<'_, Arc<downloads::Downloads>>) -> Result<Vec<Value>> {
     let mut list = tauri::async_runtime::spawn_blocking(projects::list)
         .await
@@ -395,6 +426,7 @@ pub fn run() {
             release_update_install,
             get_settings,
             save_settings,
+            setup_library,
             list_projects,
             project_entries,
             previews::project_preview,

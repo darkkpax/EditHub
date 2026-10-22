@@ -23,6 +23,8 @@ export const api = {
     command<string | null>("project_preview", { id, folderPath }),
   saveSettings: (settings: Settings) =>
     command<Settings>("save_settings", { settings }),
+  setupLibrary: (videosFolder: string) =>
+    command<{ settings: Settings; adopted: number }>("setup_library", { videosFolder }),
   create: (name: string, editor: string, urls: string[]) =>
     command<Project>("create_project", { name, editor, urls }),
   download: (id: string, urls: string[]) =>
