@@ -93,6 +93,37 @@ async fn frame(source: &Path, seek: &str) -> Option<Vec<u8>> {
     (out.status.success() && out.stdout.starts_with(&[0xff, 0xd8]) && out.stdout.len() < 1_000_000)
         .then_some(out.stdout)
 }
+async fn quicklook_frame(source: &Path) -> Option<Vec<u8>> {
+    // macOS ships Quick Look even when ffmpeg is not installed. It covers MOV,
+    // MP4 and common camera formats, so covers work on a clean Mac.
+    #[cfg(target_os = "macos")]
+    {
+        let output = std::env::temp_dir().join(format!("edithub-preview-{}", uuid::Uuid::new_v4()));
+        tokio::fs::create_dir_all(&output).await.ok()?;
+        let result = tokio::process::Command::new("/usr/bin/qlmanage")
+            .args(["-t", "-s", "480", "-o"])
+            .arg(&output)
+            .arg(source)
+            .output()
+            .await
+            .ok();
+        let image = if result.is_some_and(|result| result.status.success()) {
+            let mut files = tokio::fs::read_dir(&output).await.ok()?;
+            let mut bytes = None;
+            while let Ok(Some(entry)) = files.next_entry().await {
+                if entry.path().extension().is_some_and(|ext| ext.eq_ignore_ascii_case("png")) {
+                    bytes = tokio::fs::read(entry.path()).await.ok();
+                    break;
+                }
+            }
+            bytes
+        } else { None };
+        let _ = tokio::fs::remove_dir_all(&output).await;
+        image
+    }
+    #[cfg(not(target_os = "macos"))]
+    { let _ = source; None }
+}
 #[tauri::command]
 pub async fn project_preview(id: String, folder_path: String) -> Result<Option<String>> {
     static WORKERS: OnceLock<Semaphore> = OnceLock::new();
@@ -133,7 +164,10 @@ pub async fn project_preview(id: String, folder_path: String) -> Result<Option<S
         }
         let bytes = match frame(&source, "1").await {
             Some(v) => Some(v),
-            None => frame(&source, "0").await,
+            None => match frame(&source, "0").await {
+                Some(v) => Some(v),
+                None => quicklook_frame(&source).await,
+            },
         };
         if let Some(bytes) = bytes {
             let _ = tokio::fs::create_dir_all(cache.parent().unwrap()).await;

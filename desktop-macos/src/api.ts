@@ -37,5 +37,6 @@ export const api = {
   open: (id: string) => command<string>("open_project", { id }),
   transfer: (id: string, restore: boolean) =>
     command<void>("transfer_project", { id, restore }),
+  archiveInactive: () => command<number>("archive_inactive_projects"),
   remove: (id: string) => command<void>("delete_project", { id }),
 };

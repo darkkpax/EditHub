@@ -263,6 +263,14 @@ async fn transfer_project(
         .await
         .map_err(|e| e.to_string())?
 }
+#[tauri::command]
+async fn archive_inactive_projects(state: State<'_, Arc<downloads::Downloads>>) -> Result<usize> {
+    let _operation = Operation::reserve(state.inner().clone(), "__smart_archive__")?;
+    let days = projects::settings()?["autoArchiveDays"].as_i64().unwrap_or(30);
+    tauri::async_runtime::spawn_blocking(move || projects::archive_inactive(days))
+        .await
+        .map_err(|e| e.to_string())?
+}
 fn hidden_command(program: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
     #[allow(unused_mut)]
     let mut c = std::process::Command::new(program);
@@ -443,6 +451,7 @@ pub fn run() {
             reveal_project,
             delete_project,
             transfer_project,
+            archive_inactive_projects,
             open_project,
             auth::google_status,
             auth::configure_google,

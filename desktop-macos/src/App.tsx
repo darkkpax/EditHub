@@ -275,6 +275,7 @@ export default function App() {
   const ui = useUI(),
     client = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
+  const [monthFilter, setMonthFilter] = useState<string | null>(null);
   useEffect(() => {
     document.documentElement.dataset.theme = ui.theme;
     if (native)
@@ -331,7 +332,11 @@ export default function App() {
     return () => clearTimeout(t);
   }, [ui.notice]);
   const all = projects.data || [];
-  const filtered = filterProjects(all, ui.filter, ui.search);
+  const unfiltered = filterProjects(all, ui.filter, ui.search);
+  const filtered = monthFilter
+    ? unfiltered.filter((project) => monthGroup(project).id === monthFilter)
+    : unfiltered;
+  const availableMonths = groupByCreatedMonth(unfiltered);
   const projectGroups = groupByCreatedMonth(filtered);
   const [visibleMonth, setVisibleMonth] = useState("");
   useEffect(() => {
@@ -446,7 +451,19 @@ export default function App() {
                   onChange={(e) => ui.setSearch(e.target.value)}
                 />
               </label>
-              {visibleMonth && <div className="sidebar-month-indicator">{visibleMonth}</div>}
+              {visibleMonth && (
+                <details className="sidebar-month-picker">
+                  <summary className="sidebar-month-indicator">{visibleMonth}</summary>
+                  <div className="sidebar-month-options">
+                    <button onClick={() => setMonthFilter(null)}>All dates</button>
+                    {availableMonths.map((month) => (
+                      <button key={month.id} onClick={() => setMonthFilter(month.id)}>
+                        {month.label}
+                      </button>
+                    ))}
+                  </div>
+                </details>
+              )}
             </div>
 
             {projects.isLoading ? (
@@ -1174,6 +1191,14 @@ function SettingsScreen({
     retry: false,
   });
   const [authBusy, setAuthBusy] = useState(false);
+  const smartArchive = useMutation({
+    mutationFn: api.archiveInactive,
+    onSuccess: (count) => {
+      client.invalidateQueries({ queryKey: ["projects"] });
+      ui.notify(count ? `${count} inactive projects moved to iCloud` : "No inactive projects to archive");
+    },
+    onError: (error) => ui.notify(String(error)),
+  });
   const current = draft || settings;
   const save = useMutation({
     mutationFn: () => api.saveSettings(current!),
@@ -1241,6 +1266,13 @@ function SettingsScreen({
         </div>
         {Boolean(error) && <ErrorBox error={error} />}
         <ThemePicker />
+        <section className="settings-section">
+          <h2><Cloud size={18} /> Smart iCloud archive</h2>
+          <p>Moves ready or paused projects untouched for {Number(current?.autoArchiveDays || 30)} days to iCloud. Active and downloading projects stay local.</p>
+          <Button disabled={!native || smartArchive.isPending} onClick={() => smartArchive.mutate()}>
+            <Archive size={16} />{smartArchive.isPending ? "Archiving…" : "Archive inactive projects"}
+          </Button>
+        </section>
         <section className="settings-section">
           <h2>EditHub</h2>
           <p>{appVersion} — {updater.status}</p>

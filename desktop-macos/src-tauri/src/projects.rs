@@ -473,6 +473,26 @@ pub fn transfer(id: &str, restore: bool) -> Result<()> {
         .map_err(|e| format!("Copy created; could not remove original folder: {e}"))?;
     Ok(())
 }
+pub fn archive_inactive(days: i64) -> Result<usize> {
+    let cutoff = Utc::now() - chrono::Duration::days(days.max(1));
+    let ids: Vec<String> = list()?
+        .into_iter()
+        .filter(|project| matches!(project["status"].as_str(), Some("ready") | Some("paused")))
+        .filter_map(|project| {
+            let activity = project["lastOpenedAt"].as_str().or(project["createdAt"].as_str())?;
+            chrono::DateTime::parse_from_rfc3339(activity)
+                .ok()
+                .filter(|date| date.with_timezone(&Utc) < cutoff)
+                .and_then(|_| project["id"].as_str().map(str::to_owned))
+        })
+        .collect();
+    let mut archived = 0;
+    for id in ids {
+        transfer(&id, false)?;
+        archived += 1;
+    }
+    Ok(archived)
+}
 
 #[cfg(test)]
 mod tests {
