@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { UnlistenFn } from "@tauri-apps/api/event";
-import { AnimatePresence, motion, useInView } from "motion/react";
+import { AnimatePresence, motion, useInView, useReducedMotion } from "motion/react";
 import * as Tabs from "@radix-ui/react-tabs";
 import {
   Folder,
@@ -18,6 +18,7 @@ import {
   ArrowDownToLine,
   ChevronRight,
   ChevronLeft,
+  ChevronDown,
   RefreshCw,
   Link2,
   Check,
@@ -104,16 +105,16 @@ function monthGroup(project: Project) {
     return {
       id: `${created.getFullYear()}-${created.getMonth()}`,
       order: new Date(created.getFullYear(), created.getMonth(), 1).valueOf(),
-      label: created.toLocaleDateString("en-GB", { month: "long", year: "numeric" }),
+      label: created.toLocaleDateString("en-GB", { month: "long", year: "numeric" }).toLowerCase(),
     };
   }
   const month = monthNumbers[(project.month || "").toUpperCase()] ?? Number(project.month) - 1;
   const year = Number(project.year);
   if (Number.isInteger(month) && month >= 0 && month < 12 && Number.isInteger(year)) {
     const value = new Date(year, month, 1);
-    return { id: `${year}-${month}`, order: value.valueOf(), label: value.toLocaleDateString("en-GB", { month: "long", year: "numeric" }) };
+    return { id: `${year}-${month}`, order: value.valueOf(), label: value.toLocaleDateString("en-GB", { month: "long", year: "numeric" }).toLowerCase() };
   }
-  return { id: "unknown", order: 0, label: "Earlier projects" };
+  return { id: "unknown", order: 0, label: "earlier projects" };
 }
 function groupByCreatedMonth(projects: Project[]) {
   const groups = new Map<string, { label: string; order: number; projects: Project[] }>();
@@ -242,7 +243,7 @@ function ThemePicker() {
   return (
     <section className="settings-section appearance-section">
       <div className="section-heading">
-        <h2>Appearance</h2>
+        <h2>appearance</h2>
       </div>
       <div className="theme-options" role="group" aria-label="Theme">
         {(["dark", "light"] as const).map((value) => (
@@ -258,7 +259,7 @@ function ThemePicker() {
               <i />
             </div>
             <span>
-              {value === "dark" ? "Dark" : "Light"}
+              {value === "dark" ? "dark" : "light"}
               {theme === value && (
                 <motion.span layoutId="theme-selection" className="theme-check">
                   <Check size={16} />
@@ -275,8 +276,10 @@ export default function App() {
   const updater = useAppUpdater();
   const ui = useUI(),
     client = useQueryClient();
+  const reduceMotion = useReducedMotion();
   const [createOpen, setCreateOpen] = useState(false);
   const [monthFilter, setMonthFilter] = useState<string | null>(null);
+  const [monthPickerOpen, setMonthPickerOpen] = useState(false);
   useEffect(() => {
     document.documentElement.dataset.theme = ui.theme;
     if (native)
@@ -339,6 +342,7 @@ export default function App() {
     : unfiltered;
   const availableMonths = groupByCreatedMonth(unfiltered);
   const projectGroups = groupByCreatedMonth(filtered);
+  const selectedMonth = availableMonths.find((month) => month.id === monthFilter);
   const [visibleMonth, setVisibleMonth] = useState("");
   useEffect(() => {
     const viewport = document.querySelector<HTMLElement>(".project-list .scroll-viewport");
@@ -400,18 +404,18 @@ export default function App() {
                 disabled={!native}
               >
                 <Plus size={17} />
-                New project
+                new project
               </Button>
               <div className="filters">
                 {[
-                  { value: "all", label: "All projects", icon: Layers3 },
-                  { value: "ready", label: "Active", icon: Folder },
+                  { value: "all", label: "all projects", icon: Layers3 },
+                  { value: "ready", label: "active", icon: Folder },
                   {
                     value: "downloading",
-                    label: "Downloads",
+                    label: "downloads",
                     icon: ArrowDownToLine,
                   },
-                  { value: "archive", label: "Archive", icon: Archive },
+                  { value: "archive", label: "archive", icon: Archive },
                 ].map(({ value, label, icon: Icon }) => (
                   <motion.button
                     whileHover={{ x: 3 }}
@@ -440,44 +444,90 @@ export default function App() {
                 ))}
               </div>
               <div className="sidebar-projects-heading">
-                <span>Projects</span>
+                <span>projects</span>
                 <span>{filtered.length}</span>
               </div>
               <label className="search-field">
                 <Search size={15} />
                 <input
-                  placeholder="Search projects"
+                  placeholder="search projects"
                   aria-label="Search projects"
                   value={ui.search}
                   onChange={(e) => ui.setSearch(e.target.value)}
                 />
               </label>
-              {visibleMonth && (
-                <details className="sidebar-month-picker">
-                  <summary className="sidebar-month-indicator">{visibleMonth}</summary>
-                  <div className="sidebar-month-options">
-                    <button onClick={() => setMonthFilter(null)}>All dates</button>
-                    {availableMonths.map((month) => (
-                      <button key={month.id} onClick={() => setMonthFilter(month.id)}>
-                        {month.label}
-                      </button>
-                    ))}
-                  </div>
-                </details>
+              {(selectedMonth?.label || visibleMonth) && (
+                <div className="sidebar-month-picker">
+                  <motion.button
+                    type="button"
+                    className="sidebar-month-indicator"
+                    aria-expanded={monthPickerOpen}
+                    aria-haspopup="listbox"
+                    whileHover={reduceMotion ? undefined : { y: -1 }}
+                    whileTap={reduceMotion ? undefined : { scale: 0.97 }}
+                    onClick={() => setMonthPickerOpen((open) => !open)}
+                  >
+                    <AnimatePresence mode="popLayout" initial={false}>
+                      <motion.span
+                        key={selectedMonth?.label || visibleMonth}
+                        initial={reduceMotion ? false : { opacity: 0, y: 4 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={reduceMotion ? undefined : { opacity: 0, y: -3 }}
+                        transition={{ duration: reduceMotion ? 0 : 0.18, ease: [0.25, 1, 0.5, 1] }}
+                      >
+                        {selectedMonth?.label || visibleMonth}
+                      </motion.span>
+                    </AnimatePresence>
+                    <ChevronDown size={13} className={monthPickerOpen ? "open" : ""} />
+                  </motion.button>
+                  <AnimatePresence>
+                    {monthPickerOpen && (
+                      <motion.div
+                        role="listbox"
+                        className="sidebar-month-options"
+                        initial={reduceMotion ? false : { opacity: 0, y: -7, scale: 0.985 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={reduceMotion ? undefined : { opacity: 0, y: -5, scale: 0.99 }}
+                        transition={{ duration: reduceMotion ? 0 : 0.2, ease: [0.25, 1, 0.5, 1] }}
+                      >
+                        <button onClick={() => { setMonthFilter(null); setMonthPickerOpen(false); }}>all dates</button>
+                        {availableMonths.map((month) => (
+                          <button
+                            key={month.id}
+                            className={monthFilter === month.id ? "selected" : ""}
+                            onClick={() => { setMonthFilter(month.id); setMonthPickerOpen(false); }}
+                          >
+                            {month.label}
+                          </button>
+                        ))}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
               )}
             </div>
 
             {projects.isLoading ? (
               <div className="loading">
                 <Loader2 className="spin" size={20} />
-                Loading projects
+                loading projects
               </div>
             ) : filtered.length ? (
-              projectGroups.map((group) => (
-                <section className="project-month-group" key={group.id} data-project-month={group.label}>
+              <AnimatePresence initial={false} mode="popLayout">
+              {projectGroups.map((group) => (
+                <motion.section
+                  layout={!reduceMotion}
+                  className="project-month-group"
+                  key={group.id}
+                  data-project-month={group.label}
+                  initial={reduceMotion ? false : { opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={reduceMotion ? undefined : { opacity: 0, y: -6 }}
+                  transition={{ duration: reduceMotion ? 0 : 0.24, ease: [0.25, 1, 0.5, 1] }}
+                >
                   {group.projects.map((p) => (
                     <motion.button
-                  layout="position"
+                  layout={reduceMotion ? false : "position"}
                   whileHover={{ x: 3 }}
                   whileTap={{ scale: 0.97 }}
                   key={p.id}
@@ -501,11 +551,12 @@ export default function App() {
                   <ChevronRight size={13} />
                     </motion.button>
                   ))}
-                </section>
+                </motion.section>
               ))
+              }</AnimatePresence>
             ) : (
               <p className="sidebar-empty">
-                {ui.search ? "No results" : "No projects"}
+                {ui.search ? "no results" : "no projects"}
               </p>
             )}
             <div className="sidebar-bottom">
@@ -518,7 +569,7 @@ export default function App() {
                 }
               >
                 <Settings2 size={17} />
-                <span>Settings</span>
+                <span>settings</span>
               </button>
             </div>
           </ScrollGlass>
@@ -529,9 +580,10 @@ export default function App() {
               <motion.main
                 key="projects"
                 className="workspace"
-                initial={{ opacity: 0, x: 14 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -8, transition: { duration: 0.12 } }}
+                initial={reduceMotion ? false : { opacity: 0, x: 18, y: 4 }}
+                animate={{ opacity: 1, x: 0, y: 0 }}
+                exit={reduceMotion ? undefined : { opacity: 0, x: -12, y: -3, transition: { duration: 0.18, ease: [0.25, 1, 0.5, 1] } }}
+                transition={{ duration: reduceMotion ? 0 : 0.3, ease: [0.25, 1, 0.5, 1] }}
               >
                 {projects.error ? (
                   <div className="workspace-padding">
@@ -539,13 +591,13 @@ export default function App() {
                   </div>
                 ) : null}
                 {!native ? (
-                  <Empty title="Desktop app required">
-                    Open the desktop app to access projects.
+                  <Empty title="desktop app required">
+                    open the desktop app to access projects.
                   </Empty>
                 ) : selected ? (
                   <ProjectDetail key={selected.id} project={selected} />
                 ) : (
-                  <Empty title="No projects">
+                  <Empty title="no projects">
                     <Button onClick={() => setCreateOpen(true)}>
                       <Plus size={16} />
                       Create project
@@ -1197,6 +1249,7 @@ function SettingsScreen({
 }) {
   const client = useQueryClient(),
     ui = useUI();
+  const reduceMotion = useReducedMotion();
   const [draft, setDraft] = useState<Settings | null>(null),
     [clientId, setClientId] = useState(""),
     [secret, setSecret] = useState(""),
@@ -1263,9 +1316,10 @@ function SettingsScreen({
   return (
     <motion.main
       className="settings-screen"
-      initial={{ opacity: 0, x: 14 }}
+      initial={reduceMotion ? false : { opacity: 0, x: 18, y: 4 }}
       animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0, x: -8, transition: { duration: 0.12 } }}
+      exit={reduceMotion ? undefined : { opacity: 0, x: -12, y: -3 }}
+      transition={{ duration: reduceMotion ? 0 : 0.3, ease: [0.25, 1, 0.5, 1] }}
     >
       <header className="workspace-header settings-navigation">
         <Button
@@ -1275,7 +1329,7 @@ function SettingsScreen({
           onClick={() => ui.setPage("projects")}
         >
           <ChevronLeft size={17} />
-          Back to projects
+          back to projects
         </Button>
       </header>
       <div className="settings-scroll">
@@ -1285,31 +1339,31 @@ function SettingsScreen({
         {Boolean(error) && <ErrorBox error={error} />}
         <ThemePicker />
         <section className="settings-section">
-          <h2><Cloud size={18} /> Smart iCloud archive</h2>
-          <p>Moves ready or paused projects untouched for {Number(current?.autoArchiveDays || 30)} days to iCloud. Active and downloading projects stay local.</p>
+          <h2><Cloud size={18} /> smart iCloud archive</h2>
+          <p>moves ready or paused projects untouched for {Number(current?.autoArchiveDays || 30)} days to iCloud. active and downloading projects stay local.</p>
           <Button disabled={!native || smartArchive.isPending} onClick={() => smartArchive.mutate()}>
-            <Archive size={16} />{smartArchive.isPending ? "Archiving…" : "Archive inactive projects"}
+            <Archive size={16} />{smartArchive.isPending ? "archiving…" : "archive inactive projects"}
           </Button>
         </section>
         <section className="settings-section">
-          <h2>EditHub</h2>
+          <h2>edithub</h2>
           <p>{appVersion} — {updater.status}</p>
           <Button variant="outline" disabled={!native || updater.busy} onClick={() => void updater.checkNow()}>
-            Check for updates
+            check for updates
           </Button>
-          {updater.version && <Button disabled={updater.busy} onClick={() => void updater.install()}>{updater.ready ? "Restart and install" : "Download and install"}</Button>}
+          {updater.version && <Button disabled={updater.busy} onClick={() => void updater.install()}>{updater.ready ? "restart and install" : "download and install"}</Button>}
         </section>
         {current ? (
           <>
             <section className="settings-section">
               <h2>
                 <Folder size={18} />
-                Folders
+                folders
               </h2>
               {[
-                ["projectsFolder", "Projects"],
+                ["projectsFolder", "projects"],
                 ["icloudPath", "iCloud Drive"],
-                ["downloadsFolder", "Downloads"],
+                ["downloadsFolder", "downloads"],
               ].map(([key, label]) => (
                 <label className="path-field" key={key}>
                   <span>{label}</span>
@@ -1335,9 +1389,9 @@ function SettingsScreen({
             <section className="settings-section">
               <h2>
                 <Clapperboard size={18} />
-                Editor
+                editor
               </h2>
-              {[["davinciPath", "Application path"]].map(([key, label]) => (
+              {[["davinciPath", "application path"]].map(([key, label]) => (
                 <label className="path-field" key={key}>
                   <span>{label}</span>
                   <div>
@@ -1366,7 +1420,7 @@ function SettingsScreen({
                 onClick={() => save.mutate()}
               >
                 <Check size={16} />
-                {save.isPending ? "Saving" : "Save settings"}
+                {save.isPending ? "saving" : "save settings"}
               </Button>
             </div>
           </>
@@ -1374,8 +1428,8 @@ function SettingsScreen({
           !error && (
             <p className="muted">
               {native
-                ? "Loading settings"
-                : "Open the desktop app to change settings"}
+                ? "loading settings"
+                : "open the desktop app to change settings"}
             </p>
           )
         )}
@@ -1388,12 +1442,12 @@ function SettingsScreen({
               <h2>google drive</h2>
               <p>
                 {google.isFetching
-                  ? "Checking"
+                  ? "checking"
                   : google.data?.connected
-                    ? "Connected"
+                    ? "connected"
                     : google.data?.hasApiKey
                       ? "API key configured"
-                      : "Connect account for private links"}
+                      : "connect account for private links"}
               </p>
             </div>
           </div>
@@ -1404,10 +1458,10 @@ function SettingsScreen({
             onClick={() => google.refetch()}
           >
             <RefreshCw size={16} className={google.isFetching ? "spin" : ""} />
-            Check connection
+            check connection
           </Button>
           <details>
-            <summary>Credentials</summary>
+            <summary>credentials</summary>
             <label className="field">
               OAuth client ID
               <input
@@ -1415,7 +1469,7 @@ function SettingsScreen({
                 onChange={(e) => setClientId(e.target.value)}
                 placeholder={
                   google.data?.configured
-                    ? "Configured"
+                    ? "configured"
                     : "apps.googleusercontent.com"
                 }
               />
@@ -1427,7 +1481,7 @@ function SettingsScreen({
                 autoComplete="off"
                 value={secret}
                 onChange={(e) => setSecret(e.target.value)}
-                placeholder="Unchanged if empty"
+                placeholder="unchanged if empty"
               />
             </label>
             <label className="field">
@@ -1458,7 +1512,7 @@ function SettingsScreen({
                 }
               }}
             >
-              Save credentials
+              save credentials
             </Button>
           </details>
           <Button
@@ -1472,10 +1526,10 @@ function SettingsScreen({
               <ExternalLink size={16} />
             )}
             {authBusy
-              ? "Complete sign-in in your browser"
+              ? "complete sign-in in your browser"
               : google.data?.connected
-                ? "Reconnect"
-                : "Connect account"}
+                ? "reconnect"
+                : "connect account"}
           </Button>
         </section>
         <section className="settings-section">
@@ -1485,7 +1539,7 @@ function SettingsScreen({
             </div>
             <div>
               <h2>dropbox</h2>
-              <p>Public links</p>
+              <p>public links</p>
             </div>
           </div>
         </section>
