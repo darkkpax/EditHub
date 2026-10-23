@@ -226,7 +226,8 @@ pub fn list() -> Result<Vec<Value>> {
             }
         }
     }
-    found.sort_by(|a, b| b["lastOpenedAt"].as_str().cmp(&a["lastOpenedAt"].as_str()));
+    // Library order is creation order, not last-opened order: new work belongs first.
+    found.sort_by(|a, b| b["createdAt"].as_str().cmp(&a["createdAt"].as_str()));
     Ok(found)
 }
 

@@ -55,7 +55,15 @@ fn cache_key(path: &Path) -> Result<String> {
     ))
 }
 async fn frame(source: &Path, seek: &str) -> Option<Vec<u8>> {
-    let mut command = super::hidden_command("ffmpeg");
+    let ffmpeg = [
+        "/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg",
+        "/opt/homebrew/bin/ffmpeg",
+        "/usr/local/bin/ffmpeg",
+        "ffmpeg",
+    ]
+    .into_iter()
+    .find(|path| *path == "ffmpeg" || Path::new(path).is_file())?;
+    let mut command = super::hidden_command(ffmpeg);
     command
         .args([
             "-nostdin",
