@@ -1230,6 +1230,37 @@ svg {
   flex-shrink: 0;
   color: var(--muted);
 }
+.update-ready {
+  position: fixed;
+  z-index: 51;
+  right: 30px;
+  bottom: 25px;
+  max-width: min(520px, calc(100vw - 44px));
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 14px 15px 14px 18px;
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, transparent);
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--surface-raised) 88%, transparent);
+  backdrop-filter: blur(44px) saturate(1.18);
+  box-shadow: var(--shadow), var(--glass-shadow);
+}
+.update-ready > div {
+  display: grid;
+  gap: 3px;
+}
+.update-ready strong {
+  font-size: 13px;
+}
+.update-ready span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.update-ready .button {
+  flex: none;
+  white-space: nowrap;
+}
 .floating-download {
   position: fixed;
   bottom: 25px;

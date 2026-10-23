@@ -38,6 +38,7 @@ import {
   AlertCircle,
   Pause,
   Import,
+  RotateCw,
 } from "lucide-react";
 import { api, command, native } from "./api";
 import { useUI } from "./store";
@@ -574,6 +575,23 @@ export default function App() {
         />
       )}
       <AnimatePresence>
+        {updater.ready && (
+          <motion.div
+            role="status"
+            className="update-ready"
+            initial={{ opacity: 0, y: 18, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 18, scale: 0.98 }}
+          >
+            <div>
+              <strong>Update {updater.version} is ready</strong>
+              <span>Restart EditHub to install it.</span>
+            </div>
+            <Button disabled={updater.busy} onClick={() => void updater.install()}>
+              <RotateCw size={15} /> Restart and install
+            </Button>
+          </motion.div>
+        )}
         {ui.notice && (
           <motion.div
             role="status"
@@ -1279,7 +1297,7 @@ function SettingsScreen({
           <Button variant="outline" disabled={!native || updater.busy} onClick={() => void updater.checkNow()}>
             Check for updates
           </Button>
-          {updater.version && <Button disabled={updater.busy} onClick={() => void updater.install()}>Install and restart</Button>}
+          {updater.version && <Button disabled={updater.busy} onClick={() => void updater.install()}>{updater.ready ? "Restart and install" : "Download and install"}</Button>}
         </section>
         {current ? (
           <>
