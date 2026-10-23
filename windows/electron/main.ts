@@ -12,7 +12,7 @@ import { setupProjectsIPC } from './ipc/projects'
 import { setupSettingsIPC } from './ipc/settings'
 import { setupShellIPC } from './ipc/shell'
 import { sweepExtractingDirs } from './services/project-store'
-import { setupAutoUpdate } from './services/updater'
+import { installDownloadedUpdate, setupAutoUpdate } from './services/updater'
 import { FileWatcher } from './services/watcher'
 import { ICloudSync } from './services/icloud'
 import { Archiver } from './services/archiver'
@@ -296,6 +296,7 @@ app.whenReady().then(() => {
     }
   })
   setupShellIPC(ipcMain)
+  ipcMain.handle('update:install', () => installDownloadedUpdate())
   logLine('INFO', 'IPC handlers registered')
 
   // Check GitHub Releases for a newer version and self-update.

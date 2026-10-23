@@ -10,6 +10,7 @@ export interface Settings {
   autoArchiveDays: number
   autoImportPatterns: string[]
   icloudPath: string
+  headingFont: 'system' | 'gothic'
 }
 
 function getDefaultICloudPath(): string {
@@ -35,6 +36,7 @@ const defaultSettings: Settings = {
   autoArchiveDays: 30,
   autoImportPatterns: ['*-enhanced*', '*-enhanced-v2*'],
   icloudPath: getDefaultICloudPath(),
+  headingFont: 'system',
 }
 
 const settingsPath = path.join(os.homedir(), '.edithub', 'settings.json')

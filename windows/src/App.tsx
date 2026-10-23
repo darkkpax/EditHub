@@ -12,6 +12,7 @@ export default function App() {
   const {
     activeTab,
     setProjects,
+    settings,
     upsertProject,
     setSettings,
     setActiveProjectId,
@@ -25,7 +26,12 @@ export default function App() {
   const appMode = new URLSearchParams(window.location.search).get('app')
   const isDropFXApp = appMode === 'dropfx'
   const [onboarding, setOnboarding] = useState<boolean | null>(null) // null = loading
+  const [update, setUpdate] = useState<{ version: string; percent: number; ready: boolean } | null>(null)
   const bootAt = performance.now()
+
+  useEffect(() => {
+    document.documentElement.dataset.headingFont = settings?.headingFont || 'system'
+  }, [settings?.headingFont])
 
   // Load initial data and decide onboarding
   useEffect(() => {
@@ -127,9 +133,17 @@ export default function App() {
       setActiveProjectId(projectId)
     })
 
+    const unsubUpdateProgress = api.onUpdateProgress(({ percent }) => {
+      setUpdate((current) => current ? { ...current, percent } : { version: '', percent, ready: false })
+    })
+
+    const unsubUpdateDownloaded = api.onUpdateDownloaded(({ version }) => {
+      setUpdate({ version, percent: 100, ready: true })
+    })
+
     return () => {
       unsubProgress(); unsubComplete(); unsubError()
-      unsubFileSorted(); unsubMatched(); unsubICloud(); unsubActive()
+      unsubFileSorted(); unsubMatched(); unsubICloud(); unsubActive(); unsubUpdateProgress(); unsubUpdateDownloaded()
     }
   }, [])
 
@@ -199,6 +213,19 @@ export default function App() {
         {renderTab()}
       </main>
       <Toast />
+      {update && (
+        <div className="update-notice" role="status">
+          <div>
+            <strong>{update.ready ? `update ${update.version} is ready` : 'downloading update'}</strong>
+            <span>{update.ready ? 'restart edithub to install it' : `${update.percent}% downloaded`}</span>
+          </div>
+          {update.ready && (
+            <button className="btn btn-primary" onClick={() => void window.edithub.installUpdate()}>
+              restart and install
+            </button>
+          )}
+        </div>
+      )}
     </div>
   )
 }

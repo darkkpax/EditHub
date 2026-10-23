@@ -1,6 +1,6 @@
 {
   "name": "edithub",
-  "version": "1.0.0",
+  "version": "2.3.12",
   "description": "EditHub — Project Manager + DropFX Sound Browser for Video Editors",
   "main": "dist/electron/main.js",
   "scripts": {

@@ -25,6 +25,7 @@ declare global {
       showInExplorer: (filePath: string) => Promise<void>
       minimizeWindow: () => Promise<void>
       closeWindow: () => Promise<void>
+      installUpdate: () => Promise<void>
       onDownloadProgress: (cb: (data: DownloadProgressData) => void) => () => void
       onDownloadComplete: (cb: (data: { projectId: string }) => void) => () => void
       onDownloadError: (cb: (data: { projectId: string; error: string }) => void) => () => void
@@ -35,6 +36,8 @@ declare global {
       extractArchives: () => Promise<{ started: boolean }>
       onArchivesProgress: (cb: (data: { current: number; total: number; name: string }) => void) => () => void
       onArchivesDone: (cb: (data: { extracted: number; total: number }) => void) => () => void
+      onUpdateProgress: (cb: (data: { percent: number }) => void) => () => void
+      onUpdateDownloaded: (cb: (data: { version: string }) => void) => () => void
     }
   }
 
@@ -69,6 +72,7 @@ declare global {
     autoArchiveDays: number
     autoImportPatterns: string[]
     icloudPath: string
+    headingFont: 'system' | 'gothic'
   }
 
   interface DownloadProgressData {

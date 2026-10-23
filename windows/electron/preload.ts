@@ -36,6 +36,7 @@ const api = {
   // Window controls
   minimizeWindow: () => ipcRenderer.invoke('window:minimize'),
   closeWindow: () => ipcRenderer.invoke('window:close'),
+  installUpdate: () => ipcRenderer.invoke('update:install'),
 
   // Event listeners (main → renderer)
   onDownloadProgress: (
@@ -112,6 +113,18 @@ const api = {
       cb(data)
     ipcRenderer.on('archives:done', handler)
     return () => ipcRenderer.removeListener('archives:done', handler)
+  },
+
+  onUpdateProgress: (cb: (data: { percent: number }) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, data: Parameters<typeof cb>[0]) => cb(data)
+    ipcRenderer.on('update:progress', handler)
+    return () => ipcRenderer.removeListener('update:progress', handler)
+  },
+
+  onUpdateDownloaded: (cb: (data: { version: string }) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, data: Parameters<typeof cb>[0]) => cb(data)
+    ipcRenderer.on('update:downloaded', handler)
+    return () => ipcRenderer.removeListener('update:downloaded', handler)
   },
 }
 

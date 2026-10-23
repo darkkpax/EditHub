@@ -318,6 +318,23 @@ export default function SettingsScreen() {
         </div>
       </div>
 
+      <SectionHeader title="Typography" />
+      <div className="card" style={{ overflow: 'hidden', border: '1px solid var(--sep)' }}>
+        <SettingsRow
+          label="Heading font"
+          hint="Choose the look used for screen headings"
+        >
+          <select
+            value={local.headingFont || 'system'}
+            onChange={(e) => updateLocal({ headingFont: e.target.value as Settings['headingFont'] })}
+            style={{ fontSize: 12, minWidth: 120 }}
+          >
+            <option value="system">regular</option>
+            <option value="gothic">gothic</option>
+          </select>
+        </SettingsRow>
+      </div>
+
       {/* Save button */}
       <div style={{
         display: 'flex',

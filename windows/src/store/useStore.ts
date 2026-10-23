@@ -32,6 +32,7 @@ export interface Settings {
   autoArchiveDays: number
   autoImportPatterns: string[]
   icloudPath: string
+  headingFont: 'system' | 'gothic'
 }
 
 export interface ToastMessage {

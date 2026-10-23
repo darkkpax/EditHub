@@ -1,6 +1,12 @@
 import { app, BrowserWindow } from 'electron'
 import { logLine } from '../logger'
 
+let autoUpdaterRef: typeof import('electron-updater').autoUpdater | null = null
+
+export function installDownloadedUpdate(): void {
+  autoUpdaterRef?.quitAndInstall()
+}
+
 /**
  * Auto-update via electron-updater + GitHub Releases.
  *
@@ -20,6 +26,7 @@ export function setupAutoUpdate(mainWindow: BrowserWindow | null): void {
   // Imported lazily so a dev run without the dependency installed still boots.
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { autoUpdater } = require('electron-updater') as typeof import('electron-updater')
+  autoUpdaterRef = autoUpdater
 
   autoUpdater.autoDownload = true
   autoUpdater.autoInstallOnAppQuit = true
@@ -49,8 +56,8 @@ export function setupAutoUpdate(mainWindow: BrowserWindow | null): void {
     logLine('WARN', 'update:checkFailed', err?.message || err)
   })
 
-  // Re-check every 6 hours so long-running tray sessions still update.
+  // Re-check hourly so a long-running edit session still gets a prompt.
   setInterval(() => {
     autoUpdater.checkForUpdates().catch(() => {})
-  }, 6 * 60 * 60 * 1000)
+  }, 60 * 60 * 1000)
 }
