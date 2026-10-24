@@ -1,4 +1,5 @@
 import { check, type Update } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { command, native } from "./api";
 
@@ -10,6 +11,7 @@ export async function installWhenIdle(
   await update.download(undefined, { timeout: 300000 });
   await ensureIdle(true);
   await update.install({ restartAfterInstall: true });
+  await relaunch();
 }
 
 async function downloadInBackground(
@@ -84,6 +86,9 @@ export function useAppUpdater() {
       }
       await command("ensure_idle_for_update", { reserve: true });
       await update.current.install({ restartAfterInstall: true });
+      if (mounted.current) setStatus("Restarting to install update");
+      await command("release_update_install").catch(() => {});
+      await relaunch();
     } catch (e) {
       await command("release_update_install").catch(() => {});
       setStatus(String(e instanceof Error ? e.message : e));
