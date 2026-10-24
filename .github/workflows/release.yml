@@ -32,7 +32,10 @@ jobs:
         shell: pwsh
         run: |
           $version = "${{ github.ref_name }}".TrimStart('v')
-          npm version $version --no-git-tag-version
+          $current = node -p "require('./package.json').version"
+          if ($current -ne $version) {
+            npm version $version --no-git-tag-version
+          }
 
       - name: Build and publish installer
         env:
