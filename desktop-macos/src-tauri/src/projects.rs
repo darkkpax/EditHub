@@ -73,9 +73,9 @@ pub fn write_json(path: &Path, value: &Value) -> Result<()> {
 pub fn settings() -> Result<Value> {
     let home = dirs::home_dir().ok_or("Home directory missing")?;
     #[cfg(target_os = "macos")]
-    let mut s = json!({"projectsFolder":home.join("EditHub/Projects"),"downloadsFolder":home.join("Downloads"),"icloudPath":default_icloud_drive(&home),"davinciPath":"/Applications/DaVinci Resolve/DaVinci Resolve.app","autoArchiveDays":30,"autoImportPatterns":["*-enhanced*","*-enhanced-v2*"],"theme":"light"});
+    let mut s = json!({"projectsFolder":home.join("EditHub/Projects"),"downloadsFolder":home.join("Downloads"),"icloudPath":default_icloud_drive(&home),"davinciPath":"/Applications/DaVinci Resolve/DaVinci Resolve.app","autoArchiveDays":30,"autoImportPatterns":["*-enhanced*","*-enhanced-v2*"],"theme":"light","headingFont":"system"});
     #[cfg(not(target_os = "macos"))]
-    let mut s = json!({"projectsFolder":home.join("EditHub/Projects"),"downloadsFolder":home.join("Downloads"),"icloudPath":home.join("iCloudDrive"),"davinciPath":r"C:\Program Files\Blackmagic Design\DaVinci Resolve\Resolve.exe","autoArchiveDays":30,"autoImportPatterns":["*-enhanced*","*-enhanced-v2*"],"theme":"dark"});
+    let mut s = json!({"projectsFolder":home.join("EditHub/Projects"),"downloadsFolder":home.join("Downloads"),"icloudPath":home.join("iCloudDrive"),"davinciPath":r"C:\Program Files\Blackmagic Design\DaVinci Resolve\Resolve.exe","autoArchiveDays":30,"autoImportPatterns":["*-enhanced*","*-enhanced-v2*"],"theme":"dark","headingFont":"system"});
     let path = config_dir().join("settings.json");
     if path.exists() {
         let existing = read_json(&path)?;

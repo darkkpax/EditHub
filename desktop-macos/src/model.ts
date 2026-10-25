@@ -23,8 +23,10 @@ export interface Settings {
   icloudPath: string;
   davinciPath: string;
   onboardingComplete?: boolean;
+  headingFont?: HeadingFont;
   [key: string]: unknown;
 }
+export type HeadingFont = "system" | "serif" | "rounded" | "gothic" | "cinematic";
 export interface Progress {
   projectId: string;
   fileUrl: string;

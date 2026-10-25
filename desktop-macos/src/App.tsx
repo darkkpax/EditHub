@@ -50,6 +50,7 @@ import {
   type Project,
   type Progress,
   type Settings,
+  type HeadingFont,
 } from "./model";
 import { FrostedSelection } from "./components/frosted-selection";
 import { ScrollGlass } from "./components/scroll-glass";
@@ -272,6 +273,36 @@ function ThemePicker() {
     </section>
   );
 }
+const headingFonts: { value: HeadingFont; label: string; family: string }[] = [
+  { value: "system", label: "system", family: "var(--font-sans)" },
+  { value: "rounded", label: "rounded", family: '"SF Pro Rounded", "Arial Rounded MT Bold", var(--font-sans)' },
+  { value: "serif", label: "serif", family: 'Iowan Old Style, Palatino, Georgia, serif' },
+  { value: "cinematic", label: "cinematic", family: 'Didot, "Bodoni 72", "Times New Roman", serif' },
+  { value: "gothic", label: "gothic", family: '"Old English Text MT", UnifrakturCook, Georgia, serif' },
+];
+function HeadingFontPicker({ value, onChange }: { value: HeadingFont; onChange: (font: HeadingFont) => void }) {
+  return (
+    <section className="settings-section heading-font-section">
+      <h2>heading font</h2>
+      <p>changes headings only; project names and files stay readable.</p>
+      <div className="heading-font-options" role="radiogroup" aria-label="Heading font">
+        {headingFonts.map((font) => (
+          <button
+            key={font.value}
+            type="button"
+            role="radio"
+            aria-checked={value === font.value}
+            className={`heading-font-option ${value === font.value ? "selected" : ""}`}
+            onClick={() => onChange(font.value)}
+          >
+            <span style={{ fontFamily: font.family }}>edithub</span>
+            <small>{font.label}</small>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
 export default function App() {
   const updater = useAppUpdater();
   const ui = useUI(),
@@ -298,6 +329,9 @@ export default function App() {
     queryFn: api.settings,
     enabled: native,
   });
+  useEffect(() => {
+    document.documentElement.dataset.headingFont = settings.data?.headingFont || "system";
+  }, [settings.data?.headingFont]);
   useQuery({
     queryKey: ["google-status"],
     queryFn: api.googleStatus,
@@ -1271,6 +1305,9 @@ function SettingsScreen({
     onError: (error) => ui.notify(String(error)),
   });
   const current = draft || settings;
+  useEffect(() => {
+    document.documentElement.dataset.headingFont = current?.headingFont || "system";
+  }, [current?.headingFont]);
   const save = useMutation({
     mutationFn: () => api.saveSettings(current!),
     onSuccess: (s) => {
@@ -1338,6 +1375,12 @@ function SettingsScreen({
         </div>
         {Boolean(error) && <ErrorBox error={error} />}
         <ThemePicker />
+        {current && (
+          <HeadingFontPicker
+            value={current.headingFont || "system"}
+            onChange={(headingFont) => setDraft({ ...current, headingFont })}
+          />
+        )}
         <section className="settings-section">
           <h2><Cloud size={18} /> smart iCloud archive</h2>
           <p>moves ready or paused projects untouched for {Number(current?.autoArchiveDays || 30)} days to iCloud. active and downloading projects stay local.</p>

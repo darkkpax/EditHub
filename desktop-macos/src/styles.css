@@ -2,7 +2,13 @@
 @theme {
   --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
   --font-mono: "SF Mono", Menlo, monospace;
+  --font-heading: var(--font-sans);
 }
+:root[data-heading-font="rounded"] { --font-heading: "SF Pro Rounded", "Arial Rounded MT Bold", var(--font-sans); }
+:root[data-heading-font="serif"] { --font-heading: Iowan Old Style, Palatino, Georgia, serif; }
+:root[data-heading-font="cinematic"] { --font-heading: Didot, "Bodoni 72", "Times New Roman", serif; }
+:root[data-heading-font="gothic"] { --font-heading: "Old English Text MT", UnifrakturCook, Georgia, serif; }
+h1, h2, h3, .page-heading { font-family: var(--font-heading); }
 :root {
   font-family: var(--font-sans);
   font-size: 14px;
@@ -1469,6 +1475,27 @@ svg {
 .theme-option.selected > span {
   color: var(--ink);
 }
+.heading-font-options {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 18px;
+}
+.heading-font-option {
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: 13px;
+  background: var(--surface-hover);
+  color: var(--muted);
+  padding: 11px 8px 9px;
+  text-align: center;
+  transition: transform 160ms cubic-bezier(0.25, 1, 0.5, 1), background 160ms cubic-bezier(0.25, 1, 0.5, 1), border-color 160ms cubic-bezier(0.25, 1, 0.5, 1), color 160ms cubic-bezier(0.25, 1, 0.5, 1);
+}
+.heading-font-option:hover { transform: translateY(-2px); color: var(--ink); }
+.heading-font-option.selected { border-color: color-mix(in srgb, var(--accent) 48%, var(--line)); background: var(--surface-selected); color: var(--ink); }
+.heading-font-option > span { display: block; overflow: hidden; font-size: 17px; line-height: 1.05; text-overflow: clip; white-space: nowrap; }
+.heading-font-option > small { display: block; margin-top: 9px; color: var(--muted); font-family: var(--font-sans); font-size: 9px; font-weight: 650; }
+@media (max-width: 700px) { .heading-font-options { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 
 .spin {
   animation: spin 1s linear infinite;
