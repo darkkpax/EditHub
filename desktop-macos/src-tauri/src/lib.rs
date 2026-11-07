@@ -12,7 +12,8 @@ fn ensure_idle_for_update(
     state: State<'_, Arc<downloads::Downloads>>,
     reserve: bool,
 ) -> Result<()> {
-    let mut active = state.active.lock().unwrap();
+    let mut work = state.work.lock().unwrap();
+    let active = &mut work.active;
     if !active.is_empty() {
         return Err("Wait for current operations before installing the update".into());
     }
@@ -27,7 +28,7 @@ fn ensure_idle_for_update(
 
 #[tauri::command]
 fn release_update_install(state: State<'_, Arc<downloads::Downloads>>) {
-    state.active.lock().unwrap().remove("__update__");
+    state.work.lock().unwrap().active.remove("__update__");
 }
 
 #[tauri::command]
@@ -39,7 +40,7 @@ async fn save_settings(
     state: State<'_, Arc<downloads::Downloads>>,
     settings: Value,
 ) -> Result<Value> {
-    if !state.active.lock().unwrap().is_empty() {
+    if !state.work.lock().unwrap().active.is_empty() {
         return Err("Wait for current operations before changing settings".into());
     }
     let mut current = projects::settings()?;
@@ -80,8 +81,7 @@ async fn setup_library(videos_folder: String) -> Result<Value> {
         if let Some(home) = dirs::home_dir() {
             let drive = home.join("Library/Mobile Documents/com~apple~CloudDocs");
             if drive.is_dir() {
-                std::fs::create_dir_all(drive.join("edithub/Videos"))
-                    .map_err(|e| e.to_string())?;
+                std::fs::create_dir_all(drive.join("edithub/Videos")).map_err(|e| e.to_string())?;
                 settings["icloudPath"] = json!(drive.to_string_lossy().to_string());
             }
         }
@@ -94,12 +94,17 @@ async fn list_projects(state: State<'_, Arc<downloads::Downloads>>) -> Result<Ve
     let mut list = tauri::async_runtime::spawn_blocking(projects::list)
         .await
         .map_err(|e| e.to_string())??;
-    let active = state.active.lock().unwrap();
+    let work = state.work.lock().unwrap();
     for p in &mut list {
-        if p["status"] == "downloading" && !active.contains_key(p["id"].as_str().unwrap_or("")) {
+        let id = p["id"].as_str().unwrap_or("");
+        if work.running.as_deref() == Some(id) {
+            p["status"] = json!("downloading");
+        } else if let Some(position) = work.pending.iter().position(|job| job.id == id) {
+            p["status"] = json!("queued");
+            p["downloadQueuePosition"] = json!(position + 1);
+        } else if p["status"] == "downloading" || p["status"] == "queued" {
             p["status"] = json!("paused");
-            p["downloadError"] =
-                json!("Previous download interrupted. Select Retry download to resume");
+            p["downloadError"] = json!("Previous download interrupted. Select Resume to continue");
         }
     }
     Ok(list)
@@ -140,7 +145,9 @@ async fn create_project(
     urls: Vec<String>,
 ) -> Result<Value> {
     let _operation = Operation::reserve(state.inner().clone(), "__create__")?;
-    projects::create(&name, &editor, urls)
+    tauri::async_runtime::spawn_blocking(move || projects::create(&name, &editor, urls))
+        .await
+        .map_err(|e| e.to_string())?
 }
 #[tauri::command]
 async fn start_downloads(
@@ -155,53 +162,81 @@ async fn start_downloads(
     for url in &urls {
         downloads::normalize(url)?;
     }
-    let p = projects::find(&id)?;
-    if p["status"] == "archive" {
+    let operation = Operation::reserve(state.inner().clone(), &id)?;
+    let lookup = id.clone();
+    let mut project = tauri::async_runtime::spawn_blocking(move || projects::find(&lookup))
+        .await
+        .map_err(|e| e.to_string())??;
+    if project["status"] == "archive" {
         return Err("Restore the project first".into());
     }
-    let cancel = tokio_util::sync::CancellationToken::new();
-    {
-        let mut active = state.active.lock().unwrap();
-        if active.contains_key("__update__") {
-            return Err("Update installation in progress".into());
-        }
-        if active.contains_key(&id) {
-            return Err("Project is already downloading".into());
-        }
-        active.insert(id.clone(), cancel.clone());
+    if project["footageUrls"] != json!(urls) {
+        project
+            .as_object_mut()
+            .unwrap()
+            .remove("downloadCompletedJobs");
     }
-    let _ = app.emit(
-        "download-progress",
-        downloads::Progress {
-            project_id: id.clone(),
-            file_url: String::new(),
-            file_name: "Preparing files…".into(),
-            bytes_downloaded: 0,
-            total_bytes: 0,
-            percent: 0,
-            state: "downloading".into(),
-            error: None,
-        },
-    );
-    let owned = state.inner().clone();
-    tauri::async_runtime::spawn(downloads::run(app, owned, id, urls, cancel));
+    project["footageUrls"] = json!(urls);
+    project["status"] = json!("queued");
+    project["downloadError"] = json!("");
+    projects::save(&project)?;
+    {
+        let mut work = state.work.lock().unwrap();
+        let cancel = work.active[&id].clone();
+        work.pending.push_back(downloads::QueuedDownload {
+            id: id.clone(),
+            project,
+            cancel,
+        });
+        let _ = app.emit(
+            "download-progress",
+            downloads::project_progress(&id, "queued", "Waiting in queue", None),
+        );
+    }
+    operation.handoff();
+    tauri::async_runtime::spawn(downloads::run(app, state.inner().clone()));
     Ok(())
 }
 #[tauri::command]
-async fn cancel_downloads(state: State<'_, Arc<downloads::Downloads>>, id: String) -> Result<()> {
-    if let Some(cancel) = state.active.lock().unwrap().get(&id) {
-        cancel.cancel();
+async fn cancel_downloads(
+    app: tauri::AppHandle,
+    state: State<'_, Arc<downloads::Downloads>>,
+    id: String,
+) -> Result<()> {
+    let mut work = state.work.lock().unwrap();
+    if let Some(index) = work.pending.iter().position(|job| job.id == id) {
+        let mut project = work.pending[index].project.clone();
+        project["status"] = json!("paused");
+        projects::save(&project)?;
+        work.pending.remove(index);
+        work.active.remove(&id);
+        let _ = app.emit(
+            "download-progress",
+            downloads::project_progress(&id, "cancelled", "", None),
+        );
+    } else if work.running.as_deref() == Some(&id) {
+        work.active[&id].cancel();
     }
     Ok(())
 }
+
+#[tauri::command]
+async fn prioritize_download(
+    state: State<'_, Arc<downloads::Downloads>>,
+    id: String,
+) -> Result<()> {
+    state.work.lock().unwrap().prioritize(&id)
+}
+
 struct Operation {
     state: Arc<downloads::Downloads>,
-    id: String,
+    id: Option<String>,
 }
 impl Operation {
     fn reserve(state: Arc<downloads::Downloads>, id: &str) -> Result<Self> {
         {
-            let mut active = state.active.lock().unwrap();
+            let mut work = state.work.lock().unwrap();
+            let active = &mut work.active;
             if active.contains_key("__update__") {
                 return Err("Update installation in progress".into());
             }
@@ -212,13 +247,19 @@ impl Operation {
         }
         Ok(Self {
             state,
-            id: id.into(),
+            id: Some(id.into()),
         })
+    }
+
+    fn handoff(mut self) {
+        self.id = None;
     }
 }
 impl Drop for Operation {
     fn drop(&mut self) {
-        self.state.active.lock().unwrap().remove(&self.id);
+        if let Some(id) = &self.id {
+            self.state.work.lock().unwrap().active.remove(id);
+        }
     }
 }
 #[tauri::command]
@@ -266,7 +307,9 @@ async fn transfer_project(
 #[tauri::command]
 async fn archive_inactive_projects(state: State<'_, Arc<downloads::Downloads>>) -> Result<usize> {
     let _operation = Operation::reserve(state.inner().clone(), "__smart_archive__")?;
-    let days = projects::settings()?["autoArchiveDays"].as_i64().unwrap_or(30);
+    let days = projects::settings()?["autoArchiveDays"]
+        .as_i64()
+        .unwrap_or(30);
     tauri::async_runtime::spawn_blocking(move || projects::archive_inactive(days))
         .await
         .map_err(|e| e.to_string())?
@@ -284,9 +327,13 @@ fn hidden_command(program: impl AsRef<std::ffi::OsStr>) -> std::process::Command
 
 fn editor_is_available(path: &std::path::Path) -> bool {
     #[cfg(target_os = "macos")]
-    { path.is_dir() && path.extension().is_some_and(|value| value == "app") }
+    {
+        path.is_dir() && path.extension().is_some_and(|value| value == "app")
+    }
     #[cfg(not(target_os = "macos"))]
-    { path.is_file() }
+    {
+        path.is_file()
+    }
 }
 
 fn launch_editor(path: &std::path::Path) -> Result<()> {
@@ -320,7 +367,11 @@ async fn run_bridge(app: &tauri::AppHandle, p: &Value, action: &str) -> Result<(
     let name = p["name"].as_str().unwrap_or("Project").to_string();
     let action = action.to_string();
     tauri::async_runtime::spawn_blocking(move || {
-        let mut c = hidden_command(if runner.exists() { runner } else { PathBuf::from("python3") });
+        let mut c = hidden_command(if runner.exists() {
+            runner
+        } else {
+            PathBuf::from("python3")
+        });
         c.arg(bridge)
             .args([
                 "--action",
@@ -449,6 +500,7 @@ pub fn run() {
             create_project,
             start_downloads,
             cancel_downloads,
+            prioritize_download,
             reveal_project,
             delete_project,
             transfer_project,
@@ -458,6 +510,16 @@ pub fn run() {
             auth::configure_google,
             auth::connect_google
         ])
-        .run(tauri::generate_context!())
-        .expect("error running EditHub");
+        .build(tauri::generate_context!())
+        .expect("error building EditHub")
+        .run(|_app, _event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = _event {
+                if let Some(window) = _app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.unminimize();
+                    let _ = window.set_focus();
+                }
+            }
+        });
 }

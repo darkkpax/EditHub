@@ -31,6 +31,7 @@ export const api = {
     command<Project>("create_project", { name, editor, urls }),
   download: (id: string, urls: string[]) =>
     command<void>("start_downloads", { id, urls }),
+  prioritize: (id: string) => command<void>("prioritize_download", { id }),
   cancel: (id: string) => command<void>("cancel_downloads", { id }),
   reveal: (id: string, relative = "") =>
     command<void>("reveal_project", { id, relative }),

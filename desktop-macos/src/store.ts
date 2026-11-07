@@ -1,10 +1,12 @@
 import { create } from "zustand";
-import { readTheme, saveTheme, type Theme } from "./theme";
-import type { Progress } from "./model";
+import { readTheme, saveTheme, readHeadingFont, saveHeadingFont, type Theme } from "./theme";
+import type { HeadingFont, Progress } from "./model";
 interface UIState {
   theme: Theme;
   setTheme: (theme: Theme) => void;
-  page: "projects" | "settings";
+  headingFont: HeadingFont | null;
+  setHeadingFont: (font: HeadingFont) => void;
+  page: "projects" | "settings" | "downloads";
   selected: string | null;
   filter: string;
   search: string;
@@ -22,6 +24,11 @@ export const useUI = create<UIState>((set) => ({
   setTheme: (theme) => {
     saveTheme(theme);
     set({ theme });
+  },
+  headingFont: readHeadingFont(),
+  setHeadingFont: (headingFont) => {
+    saveHeadingFont(headingFont);
+    set({ headingFont });
   },
   page: "projects",
   selected: null,

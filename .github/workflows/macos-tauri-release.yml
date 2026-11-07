@@ -1,87 +1,102 @@
-name: Release EditHub desktop
-
+﻿name: Release EditHub desktop
 on:
-  push:
-    tags:
-      - "v*"
   workflow_dispatch:
-
+  push:
+    tags: ['v2.*']
 permissions:
-  contents: write
-
+  contents: read
+concurrency:
+  group: edithub-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
-  release:
+  checks:
     strategy:
-      fail-fast: false
+      matrix:
+        platform: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.platform }}
+    defaults:
+      run:
+        working-directory: desktop-macos
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: desktop-macos/package-lock.json
+      - run: rustup default stable
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib
+  release:
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    needs: checks
+    strategy:
+      # Both builds update the same latest.json asset.
+      max-parallel: 1
       matrix:
         include:
-          - target: aarch64-apple-darwin
-          - target: x86_64-apple-darwin
-    runs-on: macos-latest
+          - platform: windows-latest
+            args: ''
+          - platform: macos-latest
+            args: --target universal-apple-darwin
+    runs-on: ${{ matrix.platform }}
+    permissions:
+      contents: write
+    outputs:
+      id: ${{ steps.bundle.outputs.releaseId }}
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: '24'
           cache: npm
           cache-dependency-path: desktop-macos/package-lock.json
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
-
-      - name: Install frontend dependencies
-        run: npm ci
+      - run: rustup default stable
+      - if: runner.os == 'macOS'
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - run: npm ci
         working-directory: desktop-macos
-
+      - name: Verify tag version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $version = (Get-Content desktop-macos/src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          if ($env:GITHUB_REF_NAME -ne "v$version") { throw 'Tag must match the app version' }
       - uses: tauri-apps/tauri-action@v1
+        id: bundle
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          # Ad-hoc signing prevents macOS from marking the downloaded ARM build as damaged.
-          APPLE_SIGNING_IDENTITY: "-"
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
+          APPLE_SIGNING_IDENTITY: '-'
         with:
           projectPath: desktop-macos
           tagName: v__VERSION__
           releaseName: EditHub v__VERSION__
-          releaseBody: macOS installer and automatic update package.
-          releaseDraft: false
+          releaseDraft: true
+          args: ${{ matrix.args }}
           prerelease: false
-          args: --target ${{ matrix.target }}
-          releaseAssetNamePattern: EditHub_[version]_[platform]_[arch][ext]
+          generateReleaseNotes: true
           uploadUpdaterJson: true
+          updaterJsonPreferNsis: true
+          uploadUpdaterSignatures: true
 
-  release-windows:
-    runs-on: windows-latest
+  publish:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: desktop-macos/package-lock.json
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-msvc
-
-      - name: Install frontend dependencies
-        run: npm ci
-        working-directory: desktop-macos
-
-      - uses: tauri-apps/tauri-action@v1
+      - uses: actions/github-script@v7
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          RELEASE_ID: ${{ needs.release.outputs.id }}
         with:
-          projectPath: desktop-macos
-          tagName: v__VERSION__
-          releaseName: EditHub v__VERSION__
-          releaseBody: Windows installer and automatic update package.
-          releaseDraft: false
-          prerelease: false
-          args: --target x86_64-pc-windows-msvc --bundles nsis
-          releaseAssetNamePattern: EditHub_[version]_[platform]_[arch][ext]
-          uploadUpdaterJson: true
+          script: |
+            await github.rest.repos.updateRelease({
+              ...context.repo,
+              release_id: Number(process.env.RELEASE_ID),
+              draft: false,
+              make_latest: "true",
+            });

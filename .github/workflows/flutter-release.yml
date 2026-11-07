@@ -6,7 +6,7 @@ name: Release EditHub (Flutter)
 on:
   push:
     tags:
-      - 'v*'
+      - 'v1.*'
 
 permissions:
   contents: write

@@ -1,6 +1,6 @@
 [package]
 name = "edithub-desktop"
-version = "2.3.16"
+version = "2.4.0"
 edition = "2021"
 
 [lib]
@@ -36,5 +36,4 @@ tauri-plugin-updater = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-process = "2"
 
-[dev-dependencies]
 tempfile = "3"

@@ -10,6 +10,7 @@ export interface Project {
   editor: string;
   folderPath: string;
   downloadError?: string;
+  downloadQueuePosition?: number;
 }
 export interface Entry {
   name: string;

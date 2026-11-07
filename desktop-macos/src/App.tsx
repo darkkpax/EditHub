@@ -64,6 +64,7 @@ const statusLabels: Record<string, string> = {
   ready: "Ready",
   downloading: "Downloading",
   paused: "Paused",
+  queued: "Queued",
   archive: "Archived",
   incloud: "In cloud",
   uploading: "Uploading",
@@ -273,30 +274,24 @@ function ThemePicker() {
     </section>
   );
 }
-const headingFonts: { value: HeadingFont; label: string; family: string }[] = [
-  { value: "system", label: "system", family: "var(--font-sans)" },
-  { value: "rounded", label: "rounded", family: '"SF Pro Rounded", "Arial Rounded MT Bold", var(--font-sans)' },
-  { value: "serif", label: "serif", family: 'Iowan Old Style, Palatino, Georgia, serif' },
-  { value: "cinematic", label: "cinematic", family: 'Didot, "Bodoni 72", "Times New Roman", serif' },
-  { value: "gothic", label: "gothic", family: '"Old English Text MT", UnifrakturCook, Georgia, serif' },
-];
+const headingFonts: HeadingFont[] = ["system", "rounded", "serif", "cinematic", "gothic"];
 function HeadingFontPicker({ value, onChange }: { value: HeadingFont; onChange: (font: HeadingFont) => void }) {
   return (
     <section className="settings-section heading-font-section">
       <h2>heading font</h2>
-      <p>changes headings only; project names and files stay readable.</p>
+      <p>applies to headings throughout EditHub.</p>
       <div className="heading-font-options" role="radiogroup" aria-label="Heading font">
         {headingFonts.map((font) => (
           <button
-            key={font.value}
+            key={font}
             type="button"
             role="radio"
-            aria-checked={value === font.value}
-            className={`heading-font-option ${value === font.value ? "selected" : ""}`}
-            onClick={() => onChange(font.value)}
+            aria-checked={value === font}
+            className={`heading-font-option ${value === font ? "selected" : ""}`}
+            onClick={() => onChange(font)}
           >
-            <span style={{ fontFamily: font.family }}>edithub</span>
-            <small>{font.label}</small>
+            <span data-heading-font={font}>edithub</span>
+            <small>{font}</small>
           </button>
         ))}
       </div>
@@ -329,9 +324,10 @@ export default function App() {
     queryFn: api.settings,
     enabled: native,
   });
+  const headingFont = ui.headingFont ?? settings.data?.headingFont ?? "system";
   useEffect(() => {
-    document.documentElement.dataset.headingFont = settings.data?.headingFont || "system";
-  }, [settings.data?.headingFont]);
+    document.documentElement.dataset.headingFont = headingFont;
+  }, [headingFont]);
   useQuery({
     queryKey: ["google-status"],
     queryFn: api.googleStatus,
@@ -344,15 +340,18 @@ export default function App() {
     let disposed = false;
     let unsubscribe: (() => void) | undefined;
     listen<Progress>("download-progress", (e) => {
+      const previous = useUI.getState().progress[e.payload.projectId]?.state;
       ui.updateProgress(e.payload);
-      if (["complete", "error", "cancelled"].includes(e.payload.state)) {
+      if (previous !== e.payload.state) {
         client.invalidateQueries({ queryKey: ["projects"] });
+      }
+      if (["complete", "error", "cancelled"].includes(e.payload.state)) {
         client.invalidateQueries({ queryKey: ["entries"] });
         client.invalidateQueries({ queryKey: ["previews"] });
         ui.notify(
           e.payload.state === "complete"
             ? "Downloaded to FOOTAGE"
-            : e.payload.error || "Download cancelled",
+            : e.payload.error || "Download paused",
         );
       }
     }).then((off) => {
@@ -397,13 +396,18 @@ export default function App() {
     if (native)
       getCurrentWindow()
         .setTitle(
-          ui.page === "settings" ? "Settings" : selected?.name || "Projects",
+          ui.page === "settings" ? "Settings" : ui.page === "downloads" ? "Downloads" : selected?.name || "Projects",
         )
         .catch(() => {});
   }, [ui.page, selected?.name]);
-  const running = Object.values(ui.progress).filter(
-    (p) => p.state === "downloading",
-  );
+  const downloads = all
+    .filter((p) => ["downloading", "queued", "paused"].includes(p.status) || p.downloadError)
+    .sort((a, b) => {
+      const position = (p: Project) =>
+        p.status === "downloading" ? 0 : p.downloadQueuePosition ?? Number.MAX_SAFE_INTEGER;
+      return position(a) - position(b);
+    });
+  const queuedCount = downloads.filter((p) => ["downloading", "queued"].includes(p.status)).length;
   return (
     <div className="app-shell">
       <div className="app-body">
@@ -445,23 +449,29 @@ export default function App() {
                   { value: "all", label: "all projects", icon: Layers3 },
                   { value: "ready", label: "active", icon: Folder },
                   {
-                    value: "downloading",
+                    value: "downloads",
                     label: "downloads",
                     icon: ArrowDownToLine,
                   },
                   { value: "archive", label: "archive", icon: Archive },
-                ].map(({ value, label, icon: Icon }) => (
-                  <motion.button
+                ].map(({ value, label, icon: Icon }) => {
+                  const selected = value === "downloads"
+                    ? ui.page === "downloads"
+                    : ui.page === "projects" && ui.filter === value;
+                  return <motion.button
                     whileHover={{ x: 3 }}
                     whileTap={{ scale: 0.97 }}
-                    className={`filter ${ui.filter === value ? "selected" : ""}`}
+                    className={`filter ${selected ? "selected" : ""}`}
                     key={value}
                     onClick={() => {
-                      ui.setFilter(value);
-                      ui.setPage("projects");
+                      if (value === "downloads") ui.setPage("downloads");
+                      else {
+                        ui.setFilter(value);
+                        ui.setPage("projects");
+                      }
                     }}
                   >
-                    {ui.filter === value && (
+                    {selected && (
                       <FrostedSelection
                         id="filter-selection"
                         className="filter-highlight"
@@ -472,10 +482,10 @@ export default function App() {
                     <span>
                       {value === "all"
                         ? all.length
-                        : filterProjects(all, value, "").length}
+                        : value === "downloads" ? queuedCount : filterProjects(all, value, "").length}
                     </span>
-                  </motion.button>
-                ))}
+                  </motion.button>;
+                })}
               </div>
               <div className="sidebar-projects-heading">
                 <span>projects</span>
@@ -639,6 +649,8 @@ export default function App() {
                   </Empty>
                 )}
               </motion.main>
+            ) : ui.page === "downloads" ? (
+              <DownloadsScreen key="downloads" projects={downloads} />
             ) : (
               <SettingsScreen
                 key="settings"
@@ -698,16 +710,75 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
-      {running.length > 0 && ui.page !== "projects" && (
+      {queuedCount > 0 && ui.page === "settings" && (
         <button
           className="floating-download"
-          onClick={() => ui.setPage("projects")}
+          onClick={() => ui.setPage("downloads")}
         >
           <ArrowDownToLine size={16} />
-          Downloading: {running.length}
+          Downloads ({queuedCount})
         </button>
       )}
     </div>
+  );
+}
+function DownloadsScreen({ projects }: { projects: Project[] }) {
+  const ui = useUI();
+  const client = useQueryClient();
+  const action = useMutation({
+    mutationFn: (operation: () => Promise<void>) => operation(),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["projects"] }),
+  });
+  return (
+    <motion.main className="settings-screen" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+      <div className="settings-scroll">
+        <div className="page-heading"><h1>Downloads</h1></div>
+        {action.error && <ErrorBox error={action.error} />}
+        {projects.length === 0 && <Empty icon={ArrowDownToLine} title="No downloads" />}
+        {projects.map((project) => {
+          const progress = ui.progress[project.id];
+          const running = project.status === "downloading";
+          const queued = project.status === "queued";
+          return (
+            <section className="settings-section queue-item" key={project.id}>
+              <h2>{project.name}</h2>
+              <p>
+                {running
+                  ? progress?.state === "downloading" ? progress.fileName : "Preparing files…"
+                  : queued ? `Queued · ${project.downloadQueuePosition}`
+                  : project.status === "paused" ? "Paused" : "Download failed"}
+              </p>
+              {running && (
+                <div className="download-progress">
+                  <progress max={100} value={progress?.totalBytes ? progress.percent : undefined} />
+                  {!!progress?.totalBytes && (
+                    <p>{formatBytes(progress.bytesDownloaded)} / {formatBytes(progress.totalBytes)}</p>
+                  )}
+                </div>
+              )}
+              {project.downloadError && <ErrorBox error={project.downloadError} />}
+              <div className="queue-actions">
+                {(running || queued) && (
+                  <Button variant="outline" disabled={action.isPending} onClick={() => action.mutate(() => api.cancel(project.id))}>
+                    <Pause size={15} /> Pause
+                  </Button>
+                )}
+                {queued && (
+                  <Button variant="outline" disabled={action.isPending} onClick={() => action.mutate(() => api.prioritize(project.id))}>
+                    <Play size={15} /> Download now
+                  </Button>
+                )}
+                {!running && !queued && project.footageUrls?.length > 0 && (
+                  <Button variant="outline" disabled={action.isPending} onClick={() => action.mutate(() => api.download(project.id, project.footageUrls))}>
+                    <Play size={15} /> {project.status === "paused" ? "Resume" : "Retry"}
+                  </Button>
+                )}
+              </div>
+            </section>
+          );
+        })}
+      </div>
+    </motion.main>
   );
 }
 function ProjectDetail({ project: p }: { project: Project }) {
@@ -749,9 +820,12 @@ function ProjectDetail({ project: p }: { project: Project }) {
     },
     onError: (e) => ui.notify(String(e)),
   });
-  const progress = ui.progress[p.id],
-    busy = progress?.state === "downloading" || p.status === "downloading",
-    archived = p.status === "archive";
+  const progress = ui.progress[p.id];
+  const currentStatus = progress?.state === "downloading" || progress?.state === "queued"
+    ? progress.state
+    : p.status;
+  const busy = currentStatus === "downloading" || currentStatus === "queued";
+  const archived = p.status === "archive";
   const perform = (fn: () => Promise<unknown>) =>
     fn().catch((e) => ui.notify(String(e)));
   useEffect(() => {
@@ -844,7 +918,7 @@ function ProjectDetail({ project: p }: { project: Project }) {
             </div>
             <div className="project-meta">
               <span>
-                {busy ? "Downloading" : statusLabels[p.status] || p.status}
+                {statusLabels[currentStatus] || currentStatus}
               </span>
               <span>Created {date(p.createdAt)}</span>
             </div>
@@ -1020,7 +1094,7 @@ function ProjectDetail({ project: p }: { project: Project }) {
                   </span>
                   <button
                     className="icon-button"
-                    aria-label="Cancel download"
+                    aria-label="Pause download"
                     onClick={() => perform(() => api.cancel(p.id))}
                   >
                     <Pause size={15} />
@@ -1032,9 +1106,9 @@ function ProjectDetail({ project: p }: { project: Project }) {
                 />
               </div>
             )}
-            {p.downloadError && !busy && (
+            {(p.downloadError || p.status === "paused") && !busy && (
               <div className="download-error">
-                <ErrorBox error={p.downloadError} />
+                {p.downloadError && <ErrorBox error={p.downloadError} />}
                 {p.footageUrls?.length > 0 && (
                   <Button
                     variant="outline"
@@ -1045,7 +1119,7 @@ function ProjectDetail({ project: p }: { project: Project }) {
                     }
                   >
                     <RefreshCw size={14} />
-                    Retry download
+                    {p.status === "paused" ? "Resume" : "Retry download"}
                   </Button>
                 )}
               </div>
@@ -1142,6 +1216,7 @@ function CreateDialog({
     onSuccess: (p) => {
       client.invalidateQueries({ queryKey: ["projects"] });
       ui.select(p.id);
+      ui.setPage("projects");
       ui.setFilter("all");
       ui.setSearch("");
       onOpenChange(false);
@@ -1305,9 +1380,6 @@ function SettingsScreen({
     onError: (error) => ui.notify(String(error)),
   });
   const current = draft || settings;
-  useEffect(() => {
-    document.documentElement.dataset.headingFont = current?.headingFont || "system";
-  }, [current?.headingFont]);
   const save = useMutation({
     mutationFn: () => api.saveSettings(current!),
     onSuccess: (s) => {
@@ -1375,15 +1447,13 @@ function SettingsScreen({
         </div>
         {Boolean(error) && <ErrorBox error={error} />}
         <ThemePicker />
-        {current && (
-          <HeadingFontPicker
-            value={current.headingFont || "system"}
-            onChange={(headingFont) => setDraft({ ...current, headingFont })}
-          />
-        )}
+        <HeadingFontPicker
+          value={ui.headingFont ?? settings?.headingFont ?? "system"}
+          onChange={ui.setHeadingFont}
+        />
         <section className="settings-section">
           <h2><Cloud size={18} /> smart iCloud archive</h2>
-          <p>moves ready or paused projects untouched for {Number(current?.autoArchiveDays || 30)} days to iCloud. active and downloading projects stay local.</p>
+          <p>moves ready or paused projects untouched for {Number(current?.autoArchiveDays || 30)} days to iCloud. active projects and the download queue stay local.</p>
           <Button disabled={!native || smartArchive.isPending} onClick={() => smartArchive.mutate()}>
             <Archive size={16} />{smartArchive.isPending ? "archiving…" : "archive inactive projects"}
           </Button>

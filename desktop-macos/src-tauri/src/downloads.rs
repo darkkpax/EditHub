@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha1::{Digest, Sha1};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::{Duration, Instant},
@@ -152,7 +152,42 @@ pub struct Progress {
 }
 #[derive(Default)]
 pub struct Downloads {
-    pub active: Mutex<HashMap<String, CancellationToken>>,
+    pub work: Mutex<Work>,
+}
+#[derive(Default)]
+pub struct Work {
+    pub active: HashMap<String, CancellationToken>,
+    pub pending: VecDeque<QueuedDownload>,
+    pub running: Option<String>,
+}
+pub struct QueuedDownload {
+    pub id: String,
+    pub project: Value,
+    pub cancel: CancellationToken,
+}
+impl Work {
+    pub fn next(&mut self) -> Option<QueuedDownload> {
+        if self.running.is_some() {
+            return None;
+        }
+        let next = self.pending.pop_front()?;
+        self.running = Some(next.id.clone());
+        Some(next)
+    }
+
+    pub fn prioritize(&mut self, id: &str) -> Result<()> {
+        let index = self
+            .pending
+            .iter()
+            .position(|job| job.id == id)
+            .ok_or("Project is no longer queued")?;
+        let next = self.pending.remove(index).unwrap();
+        self.pending.push_front(next);
+        if let Some(cancel) = self.running.as_ref().and_then(|id| self.active.get(id)) {
+            cancel.cancel();
+        }
+        Ok(())
+    }
 }
 #[derive(Clone)]
 struct Job {
@@ -162,6 +197,20 @@ struct Job {
     name: Option<String>,
     token: Option<String>,
     key: Option<String>,
+}
+impl Job {
+    fn key(&self) -> String {
+        format!(
+            "{:x}",
+            Sha1::digest(
+                format!(
+                    "{:?}",
+                    (&self.url, &self.source, &self.relative, &self.name)
+                )
+                .as_bytes()
+            )
+        )
+    }
 }
 fn client() -> Result<reqwest::Client> {
     reqwest::Client::builder()
@@ -518,15 +567,31 @@ async fn one(
         }
         fs::create_dir_all(&dest).await.map_err(|e| e.to_string())?;
     }
-    let hash = format!(
-        "{:x}",
-        Sha1::digest(format!("{}{:?}{:?}", job.source, job.relative, job.name).as_bytes())
-    );
+    let hash = if job.name.is_none() {
+        // Reuse partial files from older versions for direct links.
+        format!(
+            "{:x}",
+            Sha1::digest(format!("{}{:?}{:?}", job.source, job.relative, job.name).as_bytes())
+        )
+    } else {
+        job.key()
+    };
     let partial = dest.join(format!(".edithub-{hash}.part"));
     let metadata = partial.with_extension("validator");
+    let archive_record = partial.with_extension("archive");
+    if let Ok(name) = fs::read_to_string(&archive_record).await {
+        if safe_name(&name).is_ok_and(|safe| safe == name) {
+            let archive = dest.join(&name);
+            if fs::symlink_metadata(&archive)
+                .await
+                .is_ok_and(|meta| meta.is_file())
+            {
+                return finish_zip(archive, &archive_record, cancel, &on_progress, id).await;
+            }
+        }
+    }
     let mut last = String::new();
-    // Google Drive and Dropbox transfers are often multi-gigabyte. Preserve the
-    // partial file and keep retrying long enough for a temporary network drop.
+    // Allow large transfers to recover from temporary network outages.
     for attempt in 0..40 {
         let size = fs::metadata(&partial).await.map(|m| m.len()).unwrap_or(0);
         let validator = fs::read_to_string(&metadata).await.ok();
@@ -591,18 +656,41 @@ async fn one(
         if let Some(response) = response {
             let name = response_name(&response, job)?;
             let append = response.status() == reqwest::StatusCode::PARTIAL_CONTENT && existing > 0;
-            if response.status() == reqwest::StatusCode::PARTIAL_CONTENT {
-                let start = response
+            let range_total = if response.status() == reqwest::StatusCode::PARTIAL_CONTENT {
+                let range = response
                     .headers()
                     .get("content-range")
                     .and_then(|v| v.to_str().ok())
                     .and_then(|v| v.strip_prefix("bytes "))
-                    .and_then(|v| v.split('-').next())
-                    .and_then(|v| v.parse::<u64>().ok());
-                if start != Some(if append { existing } else { 0 }) {
-                    return Err("Server returned an invalid file range".into());
+                    .and_then(|v| v.split_once('/'))
+                    .and_then(|(span, total)| {
+                        let (start, end) = span.split_once('-')?;
+                        Some((
+                            start.parse::<u64>().ok()?,
+                            end.parse::<u64>().ok()?,
+                            total.parse::<u64>().ok()?,
+                        ))
+                    });
+                let expected_start = if append { existing } else { 0 };
+                match range {
+                    Some((start, end, total))
+                        if start == expected_start && end >= start && end < total =>
+                    {
+                        Some(total)
+                    }
+                    _ => return Err("Server returned an invalid file range".into()),
                 }
-            }
+            } else {
+                None
+            };
+            let zip_content_type = response
+                .headers()
+                .get("content-type")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.split(';').next())
+                .is_some_and(|v| {
+                    matches!(v.trim(), "application/zip" | "application/x-zip-compressed")
+                });
             let next_validator = response
                 .headers()
                 .get("etag")
@@ -618,7 +706,9 @@ async fn one(
                 let _ = fs::remove_file(&metadata).await;
             }
             let mut count = if append { existing } else { 0 };
-            let total = response.content_length().map(|n| n + count).unwrap_or(0);
+            let total = range_total
+                .or_else(|| response.content_length())
+                .unwrap_or(0);
             let mut stream = response.bytes_stream();
             let mut file = fs::OpenOptions::new()
                 .create(true)
@@ -675,35 +765,32 @@ async fn one(
             file.flush().await.map_err(|e| e.to_string())?;
             drop(file);
             if !failed && (total == 0 || count == total) {
-                let mut target = dest.join(&name);
-                let mut suffix = 1;
-                while target.exists() {
-                    let stem = Path::new(&name)
-                        .file_stem()
-                        .unwrap_or_default()
-                        .to_string_lossy();
-                    let ext = Path::new(&name)
+                let zip = zip_content_type
+                    || Path::new(&name)
                         .extension()
-                        .map(|e| format!(".{}", e.to_string_lossy()))
-                        .unwrap_or_default();
-                    target = dest.join(format!("{stem} ({suffix}){ext}"));
-                    suffix += 1;
-                }
+                        .is_some_and(|v| v.eq_ignore_ascii_case("zip"))
+                    || (Path::new(&name).extension().is_none() && has_zip_header(&partial).await?);
+                let name = if zip
+                    && !Path::new(&name)
+                        .extension()
+                        .is_some_and(|v| v.eq_ignore_ascii_case("zip"))
+                {
+                    format!("{name}.zip")
+                } else {
+                    name
+                };
+                let target = unused_path(&dest.join(&name))?;
                 publish_file(&partial, &target).await?;
                 let _ = fs::remove_file(&metadata).await;
-                if target
-                    .extension()
-                    .is_some_and(|v| v.eq_ignore_ascii_case("zip"))
-                {
-                    let zip = target.clone();
-                    // A successfully downloaded archive remains useful even if
-                    // its optional extraction fails. This is common for nested
-                    // Dropbox archives, so do not mark the whole transfer failed.
-                    let _ = tokio::task::spawn_blocking(move || extract_zip(&zip)).await;
+                if zip {
+                    fs::write(
+                        &archive_record,
+                        target.file_name().unwrap().to_string_lossy().as_bytes(),
+                    )
+                    .await
+                    .map_err(|e| e.to_string())?;
+                    return finish_zip(target, &archive_record, cancel, &on_progress, id).await;
                 }
-                // Dropbox folder shares arrive as ZIPs. Keep a completed archive
-                // even when extraction fails (for example, a nested archive): the
-                // user can still open it manually and the download itself succeeded.
                 return Ok(target);
             }
             if !failed {
@@ -717,87 +804,222 @@ async fn one(
     }
     Err(format!("Download failed after 40 attempts: {last}"))
 }
-fn extract_zip(path: &Path) -> Result<()> {
+async fn has_zip_header(path: &Path) -> Result<bool> {
+    use tokio::io::AsyncReadExt;
+    let mut file = fs::File::open(path).await.map_err(|e| e.to_string())?;
+    let mut header = [0; 4];
+    match file.read_exact(&mut header).await {
+        Ok(_) => Ok(matches!(
+            &header,
+            b"PK\x03\x04" | b"PK\x05\x06" | b"PK\x07\x08"
+        )),
+        Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => Ok(false),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+fn unused_path(path: &Path) -> Result<PathBuf> {
+    let mut candidate = path.to_owned();
+    for suffix in 1.. {
+        match std::fs::symlink_metadata(&candidate) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(candidate),
+            Err(e) => return Err(e.to_string()),
+            Ok(_) => {}
+        }
+        let stem = path.file_stem().unwrap_or_default().to_string_lossy();
+        let extension = path
+            .extension()
+            .map(|e| format!(".{}", e.to_string_lossy()))
+            .unwrap_or_default();
+        candidate = path.with_file_name(format!("{stem} ({suffix}){extension}"));
+    }
+    unreachable!()
+}
+
+async fn finish_zip(
+    path: PathBuf,
+    record: &Path,
+    cancel: &CancellationToken,
+    on_progress: &Arc<dyn Fn(Progress) + Send + Sync>,
+    id: &str,
+) -> Result<PathBuf> {
+    on_progress(project_progress(
+        id,
+        "downloading",
+        "Extracting and verifying ZIP…",
+        None,
+    ));
+    let token = cancel.clone();
+    let result = tokio::task::spawn_blocking(move || extract_zip(&path, &token))
+        .await
+        .map_err(|e| e.to_string())?;
+    if result.is_ok() || !cancel.is_cancelled() {
+        let _ = fs::remove_file(record).await;
+    }
+    result.map_err(|e| format!("ZIP extraction failed: {e}"))
+}
+
+fn extract_zip(path: &Path, cancel: &CancellationToken) -> Result<PathBuf> {
+    use std::io::{Read, Write};
+
     let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
     let mut archive = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
-    let folder = path.with_extension("");
-    if folder.exists() {
-        return Err("ZIP saved; extraction folder already exists".into());
-    }
-    // Validate every entry before extracting anything. Keep the ZIP as a recovery copy.
-    for i in 0..archive.len() {
-        let entry = archive.by_index(i).map_err(|e| e.to_string())?;
-        let name = entry
-            .enclosed_name()
-            .ok_or("ZIP contains a path outside the destination")?;
-        if entry.unix_mode().is_some_and(|m| m & 0o170000 == 0o120000) {
-            return Err("ZIP contains symlinks".into());
-        }
-        for part in name.components() {
-            if let std::path::Component::Normal(v) = part {
-                if safe_name(&v.to_string_lossy())? != v.to_string_lossy() {
-                    return Err("ZIP contains an invalid filename".into());
-                }
+    let staging = tempfile::Builder::new()
+        .prefix(".edithub-extract-")
+        .tempdir_in(path.parent().ok_or("Archive has no parent folder")?)
+        .map_err(|e| e.to_string())?;
+    let contents = staging.path().join("files");
+    std::fs::create_dir(&contents).map_err(|e| e.to_string())?;
+    let mut buffer = vec![0; 256 * 1024];
+    for index in 0..archive.len() {
+        let mut entry = archive.by_index(index).map_err(|e| e.to_string())?;
+        // ZIP paths use slashes. Normalize legacy Windows separators before validating.
+        let name = entry.name().replace('\\', "/");
+        let mut target = contents.clone();
+        for part in name.trim_end_matches('/').split('/') {
+            if safe_name(part)? != part {
+                return Err("ZIP contains an invalid filename".into());
             }
+            target.push(part);
+        }
+        if entry.is_symlink() || (!entry.is_dir() && !entry.is_file()) {
+            return Err("ZIP contains an unsupported entry".into());
+        }
+        if entry.is_dir() {
+            std::fs::create_dir_all(&target).map_err(|e| e.to_string())?;
+            continue;
+        }
+        std::fs::create_dir_all(target.parent().unwrap()).map_err(|e| e.to_string())?;
+        let mut output = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&target)
+            .map_err(|e| e.to_string())?;
+        loop {
+            if cancel.is_cancelled() {
+                return Err("Download paused".into());
+            }
+            // Reading through EOF also validates the entry's CRC in ZipArchive.
+            let count = entry.read(&mut buffer).map_err(|e| e.to_string())?;
+            if count == 0 {
+                break;
+            }
+            output
+                .write_all(&buffer[..count])
+                .map_err(|e| e.to_string())?;
+        }
+        output.sync_all().map_err(|e| e.to_string())?;
+        if output.metadata().map_err(|e| e.to_string())?.len() != entry.size() {
+            return Err("ZIP entry size does not match the extracted file".into());
         }
     }
-    archive
-        .extract(folder)
-        .map_err(|e| format!("ZIP saved; extraction failed: {e}"))
+    drop(archive);
+    if cancel.is_cancelled() {
+        return Err("Download paused".into());
+    }
+    let folder = unused_path(&path.with_extension(""))?;
+    std::fs::rename(contents, &folder).map_err(|e| e.to_string())?;
+    std::fs::remove_file(path)
+        .map_err(|e| format!("Files verified, but ZIP could not be removed: {e}"))?;
+    Ok(folder)
 }
-pub async fn run(
-    app: tauri::AppHandle,
-    state: Arc<Downloads>,
-    id: String,
-    urls: Vec<String>,
-    cancel: CancellationToken,
-) {
-    let result=async {
-        let mut project=projects::find(&id)?;
-        if project["status"]=="archive"{return Err("Restore the archived project first".into());}
-        let root=projects::path_of(&project)?.canonicalize().map_err(|e|e.to_string())?;
-        let dest=root.join("FOOTAGE");
-        fs::create_dir_all(&dest).await.map_err(|e|e.to_string())?;
-        if !dest.canonicalize().map_err(|e|e.to_string())?.starts_with(&root){return Err("FOOTAGE points outside the project".into());}
-        project["footageUrls"]=json!(urls);project["status"]=json!("downloading");project["downloadError"]=json!("");projects::save(&project)?;
-        let c=client()?;
-        let work=tokio::select!{_=cancel.cancelled()=>return Err("Download cancelled".into()),j=jobs(&c,&urls)=>j?};
-        let callback_app=app.clone();let on_progress:Arc<dyn Fn(Progress)+Send+Sync>=Arc::new(move|p|{let _=callback_app.emit("download-progress",p);});
-        // Sequential transfers avoid saturating the disk and keep cancellation deterministic.
-        for job in work {one(&c,&job,&dest,&cancel,on_progress.clone(),&id).await?;}
-        Ok::<_,String>(())
-    }.await;
-    if let Ok(mut p) = projects::find(&id) {
-        p["status"] = json!(if cancel.is_cancelled() {
-            "paused"
-        } else {
-            "ready"
-        });
-        p["downloadError"] = json!(result.as_ref().err().cloned().unwrap_or_default());
-        p["downloadProgress"] = json!({});
-        let _ = projects::save(&p);
+
+pub fn project_progress(id: &str, state: &str, label: &str, error: Option<String>) -> Progress {
+    Progress {
+        project_id: id.into(),
+        file_url: String::new(),
+        file_name: label.into(),
+        bytes_downloaded: 0,
+        total_bytes: 0,
+        percent: if state == "complete" { 100 } else { 0 },
+        state: state.into(),
+        error,
     }
-    state.active.lock().unwrap().remove(&id);
-    let _ = app.emit(
-        "download-progress",
-        Progress {
-            project_id: id.clone(),
-            file_url: String::new(),
-            file_name: String::new(),
-            bytes_downloaded: 0,
-            total_bytes: 0,
-            percent: if result.is_ok() { 100 } else { 0 },
-            state: if cancel.is_cancelled() {
-                "cancelled"
-            } else if result.is_ok() {
-                "complete"
-            } else {
-                "error"
-            }
-            .into(),
-            error: result.err(),
-        },
-    );
+}
+
+async fn transfer(app: &tauri::AppHandle, job: &mut QueuedDownload) -> Result<()> {
+    if job.cancel.is_cancelled() {
+        return Err("Download paused".into());
+    }
+    job.project["status"] = json!("downloading");
+    projects::save(&job.project)?;
+    let root = projects::path_of(&job.project)?
+        .canonicalize()
+        .map_err(|e| e.to_string())?;
+    let dest = root.join("FOOTAGE");
+    fs::create_dir_all(&dest).await.map_err(|e| e.to_string())?;
+    if !dest
+        .canonicalize()
+        .map_err(|e| e.to_string())?
+        .starts_with(&root)
+    {
+        return Err("FOOTAGE points outside the project".into());
+    }
+    let urls: Vec<String> =
+        serde_json::from_value(job.project["footageUrls"].clone()).map_err(|e| e.to_string())?;
+    let c = client()?;
+    let files = tokio::select! {
+        _ = job.cancel.cancelled() => return Err("Download paused".into()),
+        result = jobs(&c, &urls) => result?,
+    };
+    let callback_app = app.clone();
+    let progress: Arc<dyn Fn(Progress) + Send + Sync> = Arc::new(move |p| {
+        let _ = callback_app.emit("download-progress", p);
+    });
+    let mut completed: Vec<String> =
+        serde_json::from_value(job.project["downloadCompletedJobs"].clone()).unwrap_or_default();
+    for file in files {
+        let key = file.key();
+        if completed.contains(&key) {
+            continue;
+        }
+        one(&c, &file, &dest, &job.cancel, progress.clone(), &job.id).await?;
+        completed.push(key);
+        job.project["downloadCompletedJobs"] = json!(completed);
+        projects::save(&job.project)?;
+    }
+    Ok(())
+}
+
+pub async fn run(app: tauri::AppHandle, state: Arc<Downloads>) {
+    loop {
+        let Some(mut job) = state.work.lock().unwrap().next() else {
+            return;
+        };
+        let _ = app.emit(
+            "download-progress",
+            project_progress(&job.id, "downloading", "Preparing files…", None),
+        );
+        let mut result = transfer(&app, &mut job).await;
+        let mut paused = result.is_err() && job.cancel.is_cancelled();
+        job.project["status"] = json!(if paused { "paused" } else { "ready" });
+        job.project["downloadError"] = json!(if paused { None } else { result.as_ref().err() }
+            .cloned()
+            .unwrap_or_default());
+        job.project["downloadProgress"] = json!({});
+        if result.is_ok() {
+            job.project
+                .as_object_mut()
+                .unwrap()
+                .remove("downloadCompletedJobs");
+        }
+        if let Err(error) = projects::save(&job.project) {
+            paused = false;
+            result = Err(error);
+        }
+        let event = match (paused, &result) {
+            (true, _) => "cancelled",
+            (_, Ok(())) => "complete",
+            _ => "error",
+        };
+        let mut work = state.work.lock().unwrap();
+        let _ = app.emit(
+            "download-progress",
+            project_progress(&job.id, event, "", if paused { None } else { result.err() }),
+        );
+        work.active.remove(&job.id);
+        work.running = None;
+    }
 }
 
 #[cfg(test)]
@@ -813,7 +1035,7 @@ mod tests {
         assert!(!http_error(error).contains("test-only-secret"));
     }
     #[test]
-    fn zip_extraction_keeps_recovery_archive_and_rejects_traversal() {
+    fn zip_extraction_deletes_verified_archive_and_rejects_traversal() {
         use std::io::Write;
         for name in ["nested/take.mov", "../outside.mov"] {
             let tmp = tempfile::tempdir().unwrap();
@@ -825,13 +1047,15 @@ mod tests {
                 .unwrap();
             writer.write_all(b"video").unwrap();
             writer.finish().unwrap();
-            let result = extract_zip(&path);
-            assert!(path.exists());
+            let result = extract_zip(&path, &CancellationToken::new());
             if name.starts_with("..") {
+                assert!(path.exists());
+                assert!(!tmp.path().join("assets").exists());
                 assert!(result.is_err());
                 assert!(!tmp.path().join("outside.mov").exists());
             } else {
                 result.unwrap();
+                assert!(!path.exists());
                 assert_eq!(
                     std::fs::read(tmp.path().join("assets/nested/take.mov")).unwrap(),
                     b"video"
@@ -839,6 +1063,99 @@ mod tests {
             }
         }
     }
+    fn sample_zip() -> Vec<u8> {
+        use std::io::{Cursor, Write};
+        let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+        writer.add_directory("empty/", options).unwrap();
+        writer.start_file("nested/take.mov", options).unwrap();
+        writer.write_all(b"test video payload").unwrap();
+        writer.start_file("nested/take-2.mov", options).unwrap();
+        writer.write_all(b"second file").unwrap();
+        writer.finish().unwrap().into_inner()
+    }
+
+    #[test]
+    fn rejects_a_bad_checksum_without_publishing_or_deleting_the_zip() {
+        let tmp = tempfile::tempdir().unwrap();
+        let zip = tmp.path().join("assets.zip");
+        let mut bytes = sample_zip();
+        let offset = bytes
+            .windows(b"second file".len())
+            .position(|window| window == b"second file")
+            .unwrap();
+        bytes[offset] ^= 1;
+        std::fs::write(&zip, bytes).unwrap();
+        assert!(extract_zip(&zip, &CancellationToken::new())
+            .unwrap_err()
+            .contains("checksum"));
+        assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 1);
+        assert!(zip.exists());
+    }
+
+    #[tokio::test]
+    async fn extracts_an_extensionless_zip_without_overwriting_an_existing_folder() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let archive = sample_zip();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/file", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = [0; 4096];
+            stream.read(&mut request).await.unwrap();
+            stream.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\nContent-Disposition: attachment; filename=assets\r\nConnection: close\r\n\r\n", archive.len()).as_bytes()).await.unwrap();
+            stream.write_all(&archive).await.unwrap();
+        });
+        let tmp = tempfile::tempdir().unwrap();
+        fs::create_dir(tmp.path().join("assets")).await.unwrap();
+        let output = one(
+            &client().unwrap(),
+            &test_job(&url),
+            tmp.path(),
+            &CancellationToken::new(),
+            Arc::new(|_| {}),
+            "test",
+        )
+        .await
+        .unwrap();
+        server.await.unwrap();
+        assert_eq!(output, tmp.path().join("assets (1)"));
+        assert!(output.join("empty").is_dir());
+        assert_eq!(
+            fs::read(output.join("nested/take.mov")).await.unwrap(),
+            b"test video payload"
+        );
+        assert_eq!(
+            fs::read(output.join("nested/take-2.mov")).await.unwrap(),
+            b"second file"
+        );
+        assert!(!tmp.path().join("assets.zip").exists());
+    }
+
+    #[test]
+    fn queue_runs_one_project_and_prioritizes_the_selected_project() {
+        let mut work = Work::default();
+        for id in ["first", "second", "third"] {
+            let cancel = CancellationToken::new();
+            work.active.insert(id.into(), cancel.clone());
+            work.pending.push_back(QueuedDownload {
+                id: id.into(),
+                project: json!({}),
+                cancel,
+            });
+        }
+        let first = work.next().unwrap();
+        assert_eq!(first.id, "first");
+        assert!(work.next().is_none());
+        work.prioritize("third").unwrap();
+        assert!(first.cancel.is_cancelled());
+        work.running = None;
+        assert_eq!(work.next().unwrap().id, "third");
+        work.running = None;
+        assert_eq!(work.next().unwrap().id, "second");
+    }
+
     #[test]
     fn public_folder_parses_all_entries_and_preserves_nested_names() {
         let mut html=String::from("<html><head><title>public folder</title></head><body><div id='flip-contents'><div class='flip-entries'>");

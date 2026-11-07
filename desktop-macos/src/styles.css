@@ -1,14 +1,22 @@
 @import "tailwindcss";
-@theme {
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
-  --font-mono: "SF Mono", Menlo, monospace;
-  --font-heading: var(--font-sans);
+@font-face {
+  font-family: UnifrakturCook;
+  src: url("./assets/fonts/UnifrakturCook-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-display: swap;
 }
-:root[data-heading-font="rounded"] { --font-heading: "SF Pro Rounded", "Arial Rounded MT Bold", var(--font-sans); }
-:root[data-heading-font="serif"] { --font-heading: Iowan Old Style, Palatino, Georgia, serif; }
-:root[data-heading-font="cinematic"] { --font-heading: Didot, "Bodoni 72", "Times New Roman", serif; }
-:root[data-heading-font="gothic"] { --font-heading: "Old English Text MT", UnifrakturCook, Georgia, serif; }
-h1, h2, h3, .page-heading { font-family: var(--font-heading); }
+@theme {
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  --font-mono: "SF Mono", Menlo, monospace;
+}
+:root, [data-heading-font="system"] { --font-heading: var(--font-sans); }
+[data-heading-font="rounded"] { --font-heading: "SF Pro Rounded", "Arial Rounded MT Bold", var(--font-sans); }
+[data-heading-font="serif"] { --font-heading: Iowan Old Style, Palatino, Georgia, serif; }
+[data-heading-font="cinematic"] { --font-heading: Didot, "Bodoni 72", "Times New Roman", serif; }
+[data-heading-font="gothic"] { --font-heading: UnifrakturCook, Georgia, serif; }
+h1, h2, h3, .sidebar-home, .heading-font-option > span {
+  font-family: var(--font-heading);
+}
 :root {
   font-family: var(--font-sans);
   font-size: 14px;
@@ -1984,7 +1992,6 @@ svg {
 }
 
 .dialog-heading h2.dialog-display {
-  font-family: var(--font-sans);
   font-size: 66px;
   font-weight: 700;
   line-height: 1.05;
@@ -2173,7 +2180,6 @@ svg {
   );
 }
 .sidebar-home {
-  font-family: var(--font-sans);
   font-size: 44px;
   line-height: 1.05;
   letter-spacing: 0;
@@ -2580,4 +2586,11 @@ svg {
     left: -9px;
     right: -9px;
   }
+}
+
+.queue-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
 }
