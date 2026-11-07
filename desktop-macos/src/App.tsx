@@ -662,7 +662,11 @@ export default function App() {
           </AnimatePresence>
         </div>
       </div>
-      <CreateDialog open={createOpen} onOpenChange={setCreateOpen} />
+      <CreateDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        onCreated={() => setMonthFilter(null)}
+      />
       {native && settings.isSuccess && settings.data?.onboardingComplete !== true && (
         <LibrarySetup
           onComplete={(adopted) => {
@@ -1192,29 +1196,25 @@ function ProjectDetail({ project: p }: { project: Project }) {
 function CreateDialog({
   open: opened,
   onOpenChange,
+  onCreated,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onCreated: () => void;
 }) {
   const client = useQueryClient(),
     ui = useUI();
   const [name, setName] = useState(""),
     [links, setLinks] = useState("");
   const mutation = useMutation({
-    mutationFn: async () => {
-      const urls = parseLinks(links);
-      const project = await api.create(name, "davinci", urls);
-      if (urls.length) {
-        try {
-          await api.download(project.id, urls);
-        } catch (e) {
-          ui.notify(`Project created; download failed: ${e}`);
-        }
-      }
-      return project;
-    },
+    mutationFn: () => api.create(name, "davinci", parseLinks(links)),
     onSuccess: (p) => {
-      client.invalidateQueries({ queryKey: ["projects"] });
+      client.setQueryData<Project[]>(["projects"], (projects) => [
+        p,
+        ...(projects ?? []).filter((project) => project.id !== p.id),
+      ]);
+      onCreated();
+      void client.invalidateQueries({ queryKey: ["projects"] });
       ui.select(p.id);
       ui.setPage("projects");
       ui.setFilter("all");

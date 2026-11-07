@@ -294,7 +294,8 @@ pub fn create(name: &str, editor: &str, urls: Vec<String>) -> Result<Value> {
         fs::create_dir_all(path.join(folder)).map_err(|e| e.to_string())?;
     }
     let now = Utc::now().to_rfc3339();
-    let p = json!({"id":uuid::Uuid::new_v4().to_string(),"name":name,"year":year,"month":month,"createdAt":now,"lastOpenedAt":now,"footageUrls":urls,"status":"ready","downloadProgress":{},"downloadError":"","editor":editor,"folderPath":path});
+    let status = if urls.is_empty() { "ready" } else { "queued" };
+    let p = json!({"id":uuid::Uuid::new_v4().to_string(),"name":name,"year":year,"month":month,"createdAt":now,"lastOpenedAt":now,"footageUrls":urls,"status":status,"downloadProgress":{},"downloadError":"","editor":editor,"folderPath":path});
     save(&p)?;
     Ok(p)
 }

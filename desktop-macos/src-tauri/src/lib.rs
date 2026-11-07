@@ -139,15 +139,22 @@ async fn import_project_files(id: String, relative: String, paths: Vec<String>) 
 }
 #[tauri::command]
 async fn create_project(
+    app: tauri::AppHandle,
     state: State<'_, Arc<downloads::Downloads>>,
     name: String,
     editor: String,
     urls: Vec<String>,
 ) -> Result<Value> {
     let _operation = Operation::reserve(state.inner().clone(), "__create__")?;
-    tauri::async_runtime::spawn_blocking(move || projects::create(&name, &editor, urls))
-        .await
-        .map_err(|e| e.to_string())?
+    let project =
+        tauri::async_runtime::spawn_blocking(move || projects::create(&name, &editor, urls))
+            .await
+            .map_err(|e| e.to_string())??;
+    if project["status"] == "queued" {
+        let id = project["id"].as_str().ok_or("Project ID missing")?;
+        Operation::reserve(state.inner().clone(), id)?.enqueue(app, project.clone());
+    }
+    Ok(project)
 }
 #[tauri::command]
 async fn start_downloads(
@@ -180,21 +187,7 @@ async fn start_downloads(
     project["status"] = json!("queued");
     project["downloadError"] = json!("");
     projects::save(&project)?;
-    {
-        let mut work = state.work.lock().unwrap();
-        let cancel = work.active[&id].clone();
-        work.pending.push_back(downloads::QueuedDownload {
-            id: id.clone(),
-            project,
-            cancel,
-        });
-        let _ = app.emit(
-            "download-progress",
-            downloads::project_progress(&id, "queued", "Waiting in queue", None),
-        );
-    }
-    operation.handoff();
-    tauri::async_runtime::spawn(downloads::run(app, state.inner().clone()));
+    operation.enqueue(app, project);
     Ok(())
 }
 #[tauri::command]
@@ -251,8 +244,18 @@ impl Operation {
         })
     }
 
-    fn handoff(mut self) {
-        self.id = None;
+    fn enqueue(mut self, app: tauri::AppHandle, project: Value) {
+        let id = self.id.take().unwrap();
+        {
+            let mut work = self.state.work.lock().unwrap();
+            let cancel = work.active[&id].clone();
+            work.pending.push_back(downloads::QueuedDownload {
+                id,
+                project,
+                cancel,
+            });
+        }
+        tauri::async_runtime::spawn(downloads::run(app, self.state.clone()));
     }
 }
 impl Drop for Operation {
