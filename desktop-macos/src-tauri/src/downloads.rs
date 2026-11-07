@@ -875,6 +875,10 @@ fn extract_zip(path: &Path, cancel: &CancellationToken) -> Result<PathBuf> {
         let mut entry = archive.by_index(index).map_err(|e| e.to_string())?;
         // ZIP paths use slashes. Normalize legacy Windows separators before validating.
         let name = entry.name().replace('\\', "/");
+        // Dropbox folder downloads may include an empty root directory entry.
+        if name == "/" && entry.is_dir() && !entry.is_symlink() && entry.size() == 0 {
+            continue;
+        }
         let mut target = contents.clone();
         for part in name.trim_end_matches('/').split('/') {
             if safe_name(part)? != part {
@@ -1068,6 +1072,7 @@ mod tests {
         let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
         let options = zip::write::SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Stored);
+        writer.add_directory("/", options).unwrap();
         writer.add_directory("empty/", options).unwrap();
         writer.start_file("nested/take.mov", options).unwrap();
         writer.write_all(b"test video payload").unwrap();
@@ -1095,7 +1100,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn extracts_an_extensionless_zip_without_overwriting_an_existing_folder() {
+    async fn extracts_dropbox_style_zip_without_overwriting_an_existing_folder() {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let archive = sample_zip();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
