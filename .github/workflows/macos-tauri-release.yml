@@ -1,4 +1,4 @@
-﻿name: Release EditHub desktop
+name: Release EditHub desktop
 on:
   workflow_dispatch:
   push:
@@ -94,9 +94,50 @@ jobs:
           RELEASE_ID: ${{ needs.release.outputs.id }}
         with:
           script: |
+            const releaseId = Number(process.env.RELEASE_ID);
+            const assets = await github.paginate(github.rest.repos.listReleaseAssets, {
+              ...context.repo,
+              release_id: releaseId,
+            });
+            const metadata = assets.find(asset => asset.name === "latest.json");
+            if (!metadata) throw new Error("Updater manifest is missing");
+
+            const { data } = await github.rest.repos.getReleaseAsset({
+              ...context.repo,
+              asset_id: metadata.id,
+              headers: { accept: "application/octet-stream" },
+            });
+            const manifest = data instanceof ArrayBuffer || ArrayBuffer.isView(data)
+              ? JSON.parse(Buffer.from(data).toString("utf8"))
+              : typeof data === "string" ? JSON.parse(data) : data;
+
+            // Draft manifests use API asset URLs. Public updates need direct
+            // download URLs so clients don't share GitHub's anonymous API limit.
+            for (const platform of ["windows-x86_64", "darwin-aarch64", "darwin-x86_64"]) {
+              if (!manifest.platforms?.[platform]?.signature) {
+                throw new Error(`Updater signature is missing for ${platform}`);
+              }
+            }
+            for (const target of Object.values(manifest.platforms)) {
+              const asset = assets.find(asset =>
+                asset.url === target.url || asset.browser_download_url === target.url);
+              if (!asset) throw new Error("Updater package is missing");
+              target.url = asset.browser_download_url;
+            }
+            await github.rest.repos.deleteReleaseAsset({
+              ...context.repo,
+              asset_id: metadata.id,
+            });
+            await github.rest.repos.uploadReleaseAsset({
+              ...context.repo,
+              release_id: releaseId,
+              name: "latest.json",
+              data: JSON.stringify(manifest, null, 2),
+              headers: { "content-type": "application/json" },
+            });
             await github.rest.repos.updateRelease({
               ...context.repo,
-              release_id: Number(process.env.RELEASE_ID),
+              release_id: releaseId,
               draft: false,
               make_latest: "true",
             });
