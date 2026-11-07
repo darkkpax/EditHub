@@ -100,7 +100,7 @@ pub fn safe_name(raw: &str) -> Result<String> {
             }
         })
         .collect();
-    let name = name.trim().trim_end_matches('.');
+    let name = name.trim().trim_end_matches(['.', ' ']);
     let stem = name.split('.').next().unwrap_or("").to_uppercase();
     if name.is_empty()
         || [
@@ -871,6 +871,7 @@ fn extract_zip(path: &Path, cancel: &CancellationToken) -> Result<PathBuf> {
     let contents = staging.path().join("files");
     std::fs::create_dir(&contents).map_err(|e| e.to_string())?;
     let mut buffer = vec![0; 256 * 1024];
+    let mut original_paths = HashMap::new();
     for index in 0..archive.len() {
         let mut entry = archive.by_index(index).map_err(|e| e.to_string())?;
         // ZIP paths use slashes. Normalize legacy Windows separators before validating.
@@ -880,11 +881,19 @@ fn extract_zip(path: &Path, cancel: &CancellationToken) -> Result<PathBuf> {
             continue;
         }
         let mut target = contents.clone();
+        let mut original = String::new();
         for part in name.trim_end_matches('/').split('/') {
-            if safe_name(part)? != part {
-                return Err("ZIP contains an invalid filename".into());
+            if !original.is_empty() {
+                original.push('/');
             }
-            target.push(part);
+            original.push_str(part);
+            target.push(safe_name(part)?);
+            let previous = original_paths
+                .entry(target.to_string_lossy().to_lowercase())
+                .or_insert_with(|| original.clone());
+            if previous != &original {
+                return Err("ZIP contains filenames that map to the same path".into());
+            }
         }
         if entry.is_symlink() || (!entry.is_dir() && !entry.is_file()) {
             return Err("ZIP contains an unsupported entry".into());
@@ -1076,7 +1085,7 @@ mod tests {
         writer.add_directory("empty/", options).unwrap();
         writer.start_file("nested/take.mov", options).unwrap();
         writer.write_all(b"test video payload").unwrap();
-        writer.start_file("nested/take-2.mov", options).unwrap();
+        writer.start_file("nested/take:2.mov", options).unwrap();
         writer.write_all(b"second file").unwrap();
         writer.finish().unwrap().into_inner()
     }
@@ -1097,6 +1106,21 @@ mod tests {
             .contains("checksum"));
         assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 1);
         assert!(zip.exists());
+    }
+
+    #[test]
+    fn preserves_the_archive_if_portable_filenames_would_merge_folders() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("conflict.zip");
+        let mut archive = zip::ZipWriter::new(std::fs::File::create(&path).unwrap());
+        let options = zip::write::SimpleFileOptions::default();
+        archive.start_file("media:/first.mov", options).unwrap();
+        archive.start_file("media?/second.mov", options).unwrap();
+        archive.finish().unwrap();
+        let error = extract_zip(&path, &CancellationToken::new()).unwrap_err();
+        assert!(error.contains("same path"));
+        assert!(path.exists());
+        assert!(!tmp.path().join("conflict").exists());
     }
 
     #[tokio::test]
@@ -1132,7 +1156,7 @@ mod tests {
             b"test video payload"
         );
         assert_eq!(
-            fs::read(output.join("nested/take-2.mov")).await.unwrap(),
+            fs::read(output.join("nested/take_2.mov")).await.unwrap(),
             b"second file"
         );
         assert!(!tmp.path().join("assets.zip").exists());
