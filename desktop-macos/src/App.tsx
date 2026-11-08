@@ -1645,18 +1645,71 @@ function SettingsScreen({
                 : "connect account"}
           </Button>
         </section>
-        <section className="settings-section">
-          <div className="service-header">
-            <div className="service-logo dropbox-logo">
-              <Layers3 size={23} />
-            </div>
-            <div>
-              <h2>dropbox</h2>
-              <p>public links</p>
-            </div>
-          </div>
-        </section>
+        <DropboxSettings />
       </div>
     </motion.main>
+  );
+}
+
+function DropboxSettings() {
+  const client = useQueryClient();
+  const [appKey, setAppKey] = useState("");
+  const status = useQuery({
+    queryKey: ["dropbox-status"],
+    queryFn: api.dropboxStatus,
+    enabled: native,
+    retry: false,
+  });
+  const connection = useMutation({
+    mutationFn: (action: "connect" | "disconnect") =>
+      action === "connect" ? api.connectDropbox(appKey) : api.disconnectDropbox(),
+    onSuccess: (_, action) => {
+      setAppKey("");
+      client.setQueryData(["dropbox-status"], action === "connect");
+    },
+  });
+  return (
+    <section className="settings-section">
+      <div className="service-header">
+        <div className="service-logo dropbox-logo"><Layers3 size={23} /></div>
+        <div>
+          <h2>dropbox</h2>
+          <p>{status.data ? "account connected" : "connect an account to download private links"}</p>
+        </div>
+      </div>
+      <label className="field">
+        Dropbox App key
+        <input
+          value={appKey}
+          onChange={(event) => setAppKey(event.target.value)}
+          autoComplete="off"
+          spellCheck={false}
+          placeholder={status.data ? "configured" : "from Dropbox App Console"}
+        />
+      </label>
+      <details>
+        <summary>app setup</summary>
+        <p>Enable <code>sharing.read</code> and <code>files.metadata.read</code> in Dropbox App Console.</p>
+        <p>Redirect URI <code>http://127.0.0.1:53682/oauth2callback</code></p>
+      </details>
+      {(connection.error || status.error) && <ErrorBox error={connection.error || status.error} />}
+      <div className="queue-actions">
+        <Button
+          variant="outline"
+          disabled={!native || connection.isPending || (!appKey.trim() && !status.data)}
+          onClick={() => connection.mutate("connect")}
+        >
+          {connection.isPending && connection.variables === "connect" ? <Loader2 size={16} className="spin" /> : <ExternalLink size={16} />}
+          {connection.isPending && connection.variables === "connect"
+            ? "finish sign-in in your browser"
+            : status.data ? "reconnect" : "connect Dropbox"}
+        </Button>
+        {(status.data || status.error) && (
+          <Button variant="outline" disabled={connection.isPending} onClick={() => connection.mutate("disconnect")}>
+            disconnect
+          </Button>
+        )}
+      </div>
+    </section>
   );
 }

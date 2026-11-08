@@ -1,5 +1,6 @@
 mod auth;
 mod downloads;
+mod dropbox;
 mod previews;
 mod projects;
 use projects::Result;
@@ -511,6 +512,9 @@ pub fn run() {
             open_project,
             auth::google_status,
             auth::configure_google,
+            dropbox::dropbox_status,
+            dropbox::connect_dropbox,
+            dropbox::disconnect_dropbox,
             auth::connect_google
         ])
         .build(tauri::generate_context!())

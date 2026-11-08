@@ -25,13 +25,7 @@ pub fn normalize(raw: &str) -> Result<Url> {
         return Err("Use an HTTP or HTTPS URL without credentials".into());
     }
     let host = u.host_str().unwrap().to_lowercase();
-    if [
-        "dropbox.com",
-        "www.dropbox.com",
-        "dl.dropboxusercontent.com",
-    ]
-    .contains(&host.as_str())
-    {
+    if dropbox_host(Some(&host)) {
         // The www host supports both file and folder shares, including /scl/fo/.
         u.set_host(Some("www.dropbox.com"))
             .map_err(|e| e.to_string())?;
@@ -65,6 +59,12 @@ pub fn normalize(raw: &str) -> Result<Url> {
     }
     u.set_fragment(None);
     Ok(u)
+}
+fn dropbox_host(host: Option<&str>) -> bool {
+    matches!(
+        host,
+        Some("dropbox.com" | "www.dropbox.com" | "dl.dropboxusercontent.com")
+    )
 }
 fn drive_id(u: &Url) -> Option<String> {
     let parts: Vec<_> = u.path_segments()?.collect();
@@ -197,19 +197,19 @@ struct Job {
     name: Option<String>,
     token: Option<String>,
     key: Option<String>,
+    dropbox_arg: Option<String>,
 }
 impl Job {
     fn key(&self) -> String {
-        format!(
-            "{:x}",
-            Sha1::digest(
-                format!(
-                    "{:?}",
-                    (&self.url, &self.source, &self.relative, &self.name)
-                )
-                .as_bytes()
-            )
-        )
+        let mut hash = Sha1::new();
+        hash.update(format!(
+            "{:?}",
+            (&self.url, &self.source, &self.relative, &self.name)
+        ));
+        if let Some(args) = &self.dropbox_arg {
+            hash.update(args);
+        }
+        format!("{:x}", hash.finalize())
     }
 }
 fn client() -> Result<reqwest::Client> {
@@ -217,7 +217,18 @@ fn client() -> Result<reqwest::Client> {
         .cookie_store(true)
         .user_agent("Mozilla/5.0 EditHub/2.0")
         .connect_timeout(Duration::from_secs(30))
-        .redirect(reqwest::redirect::Policy::limited(12))
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            if attempt.previous().first().is_some_and(|url| {
+                matches!(
+                    url.host_str(),
+                    Some("api.dropboxapi.com" | "content.dropboxapi.com")
+                )
+            }) {
+                attempt.stop()
+            } else {
+                reqwest::redirect::Policy::limited(12).redirect(attempt)
+            }
+        }))
         .build()
         .map_err(|e| e.to_string())
 }
@@ -351,18 +362,195 @@ async fn public_folder_jobs(c: &reqwest::Client, source: &str) -> Result<Vec<Job
                     name: Some(entry.name),
                     token: None,
                     key: None,
+                    dropbox_arg: None,
                 });
             }
         }
     }
     Ok(result)
 }
+fn dropbox_argument(args: &Value) -> String {
+    use std::fmt::Write;
+    let mut header = String::new();
+    for unit in args.to_string().encode_utf16() {
+        if unit <= 0x7f {
+            header.push(char::from(unit as u8));
+        } else {
+            write!(header, "\\u{unit:04x}").unwrap();
+        }
+    }
+    header
+}
+
+async fn dropbox_rpc(
+    c: &reqwest::Client,
+    api: &str,
+    endpoint: &str,
+    token: &str,
+    args: Value,
+) -> Result<Value> {
+    let response = c
+        .post(format!("{api}/{endpoint}"))
+        .bearer_auth(token)
+        .json(&args)
+        .timeout(Duration::from_secs(30))
+        .send()
+        .await
+        .map_err(http_error)?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "Dropbox HTTP {}: check the connected account and access to this link",
+            response.status().as_u16()
+        ));
+    }
+    response.json().await.map_err(http_error)
+}
+
+fn dropbox_file(source: &str, args: Value, relative: PathBuf, name: String) -> Job {
+    Job {
+        url: Url::parse("https://content.dropboxapi.com/2/sharing/get_shared_link_file").unwrap(),
+        source: source.into(),
+        relative,
+        name: Some(name),
+        token: None,
+        key: None,
+        dropbox_arg: Some(dropbox_argument(&args)),
+    }
+}
+
+async fn dropbox_jobs(
+    c: &reqwest::Client,
+    api: &str,
+    source: &str,
+    link: &str,
+    token: &str,
+) -> Result<Vec<Job>> {
+    let metadata = dropbox_rpc(
+        c,
+        api,
+        "sharing/get_shared_link_metadata",
+        token,
+        json!({"url":link}),
+    )
+    .await?;
+    let name = safe_name(
+        metadata["name"]
+            .as_str()
+            .ok_or("Dropbox filename is missing")?,
+    )?;
+    match metadata[".tag"].as_str() {
+        Some("file") => {
+            return Ok(vec![dropbox_file(
+                source,
+                json!({"url":link}),
+                PathBuf::new(),
+                name,
+            )])
+        }
+        Some("folder") => (),
+        _ => return Err("Dropbox link does not refer to a downloadable file or folder".into()),
+    }
+    let mut files = Vec::new();
+    let mut folders = vec![(String::new(), PathBuf::from(name))];
+    while let Some((path, relative)) = folders.pop() {
+        let mut page = dropbox_rpc(
+            c,
+            api,
+            "files/list_folder",
+            token,
+            json!({
+                "path": path,
+                "shared_link": {"url": link},
+            }),
+        )
+        .await?;
+        let mut names = std::collections::HashSet::new();
+        loop {
+            for entry in page["entries"]
+                .as_array()
+                .ok_or("Dropbox folder listing is missing")?
+            {
+                let original = entry["name"]
+                    .as_str()
+                    .ok_or("Dropbox filename is missing")?;
+                let name = safe_name(original)?;
+                if !names.insert(name.to_lowercase()) {
+                    return Err(
+                        "Dropbox folder contains names that map to the same local path".into(),
+                    );
+                }
+                let remote = format!("{path}/{original}");
+                match entry[".tag"].as_str() {
+                    Some("folder") => folders.push((remote, relative.join(name))),
+                    Some("file") if entry["is_downloadable"] != false => {
+                        files.push(dropbox_file(
+                            source,
+                            json!({"url":link, "path":remote}),
+                            relative.clone(),
+                            name,
+                        ));
+                    }
+                    _ => {
+                        return Err(
+                            "Dropbox folder contains an item that cannot be downloaded".into()
+                        )
+                    }
+                }
+            }
+            if page["has_more"].as_bool() != Some(true) {
+                break;
+            }
+            let cursor = page["cursor"]
+                .as_str()
+                .ok_or("Dropbox folder cursor is missing")?;
+            page = dropbox_rpc(
+                c,
+                api,
+                "files/list_folder/continue",
+                token,
+                json!({"cursor":cursor}),
+            )
+            .await?;
+        }
+    }
+    Ok(files)
+}
+
 async fn jobs(c: &reqwest::Client, urls: &[String]) -> Result<Vec<Job>> {
     let mut out = vec![];
     let mut auth = None;
     for source in urls {
         let original = Url::parse(source).map_err(|e| e.to_string())?;
         let normalized = normalize(source)?;
+        if dropbox_host(original.host_str())
+            && ["/s/", "/sh/", "/scl/fi/", "/scl/fo/"]
+                .iter()
+                .any(|prefix| original.path().starts_with(prefix))
+        {
+            if let Some(token) = crate::dropbox::access().await? {
+                let mut share = normalized.clone();
+                let pairs: Vec<_> = share
+                    .query_pairs()
+                    .filter(|(key, _)| key != "dl")
+                    .map(|(key, value)| (key.into_owned(), value.into_owned()))
+                    .collect();
+                share.set_query(None);
+                if !pairs.is_empty() {
+                    share.query_pairs_mut().extend_pairs(pairs);
+                }
+                out.extend(
+                    dropbox_jobs(
+                        c,
+                        "https://api.dropboxapi.com/2",
+                        source,
+                        share.as_str(),
+                        &token,
+                    )
+                    .await?,
+                );
+                continue;
+            }
+        }
         if original.host_str() == Some("drive.google.com") {
             let public_error = if original.path().contains("/folders/") {
                 match public_folder_jobs(c, source).await {
@@ -418,7 +606,7 @@ async fn jobs(c: &reqwest::Client, urls: &[String]) -> Result<Vec<Job>> {
                             if mime == "application/vnd.google-apps.folder" {
                                 queue.push((child_id.to_string(), prefix.join(name)));
                             } else if !mime.starts_with("application/vnd.google-apps.") {
-                                out.push(Job{url:Url::parse(&format!("https://www.googleapis.com/drive/v3/files/{child_id}?alt=media&supportsAllDrives=true")).unwrap(),source:source.clone(),relative:prefix.clone(),name:Some(name),token:token.clone(),key:key.clone()});
+                                out.push(Job{url:Url::parse(&format!("https://www.googleapis.com/drive/v3/files/{child_id}?alt=media&supportsAllDrives=true")).unwrap(),source:source.clone(),relative:prefix.clone(),name:Some(name),token:token.clone(),key:key.clone(),dropbox_arg:None});
                             } else {
                                 return Err("Folder contains Google Docs or shortcuts. Export them to regular files first".into());
                             }
@@ -441,7 +629,7 @@ async fn jobs(c: &reqwest::Client, urls: &[String]) -> Result<Vec<Job>> {
                     key,
                 )
                 .await?;
-                out.push(Job{url:Url::parse(&format!("https://www.googleapis.com/drive/v3/files/{id}?alt=media&supportsAllDrives=true")).unwrap(),source:source.clone(),relative:PathBuf::new(),name:Some(safe_name(data["name"].as_str().ok_or("Filename missing")?)?),token:Some(token.clone()),key:key.clone()});
+                out.push(Job{url:Url::parse(&format!("https://www.googleapis.com/drive/v3/files/{id}?alt=media&supportsAllDrives=true")).unwrap(),source:source.clone(),relative:PathBuf::new(),name:Some(safe_name(data["name"].as_str().ok_or("Filename missing")?)?),token:Some(token.clone()),key:key.clone(),dropbox_arg:None});
                 continue;
             }
         }
@@ -452,6 +640,7 @@ async fn jobs(c: &reqwest::Client, urls: &[String]) -> Result<Vec<Job>> {
             name: None,
             token: None,
             key: None,
+            dropbox_arg: None,
         });
     }
     if out.is_empty() {
@@ -600,9 +789,19 @@ async fn one(
         let mut current = job.url.clone();
         let mut confirmed = false;
         let response = loop {
-            let mut request = c
-                .get(current.clone())
-                .timeout(Duration::from_secs(60 * 60 * 24));
+            let mut request = if let Some(args) = &job.dropbox_arg {
+                let token = tokio::select! {
+                    _ = cancel.cancelled() => return Err("Download paused".into()),
+                    result = crate::dropbox::access() => result?,
+                }
+                .ok_or("Connect Dropbox in Settings before resuming this download")?;
+                c.post(current.clone())
+                    .bearer_auth(token)
+                    .header("Dropbox-API-Arg", args)
+            } else {
+                c.get(current.clone())
+            }
+            .timeout(Duration::from_secs(60 * 60 * 24));
             if let Some((range, validator)) = &resume {
                 request = request.header("Range", range).header("If-Range", validator);
             }
@@ -631,7 +830,13 @@ async fn one(
                 break None;
             }
             if !response.status().is_success() {
-                let message = format!("HTTP {status}: check link permissions and download limits");
+                let message = if job.dropbox_arg.is_some() {
+                    format!(
+                        "Dropbox HTTP {status}: check access to this link or reconnect in Settings"
+                    )
+                } else {
+                    format!("HTTP {status}: check link permissions and download limits")
+                };
                 if retry_status(status) {
                     last = message;
                     break None;
@@ -648,6 +853,9 @@ async fn one(
                     current = confirmation(&html_body(response).await?)?;
                     confirmed = true;
                     continue;
+                }
+                if dropbox_host(job.url.host_str()) {
+                    return Err("Dropbox returned a web page. Connect your account in Settings for private links".into());
                 }
                 return Err("Service returned a page instead of a file. Check download permissions and password protection".into());
             }
@@ -1340,6 +1548,7 @@ mod tests {
             name: None,
             token: None,
             key: None,
+            dropbox_arg: None,
         }
     }
     #[tokio::test]
@@ -1435,6 +1644,44 @@ mod tests {
         assert_eq!(fs::read(&target).await.unwrap(), b"new");
         assert!(!partial.exists());
     }
+    #[tokio::test]
+    async fn dropbox_lists_paginated_folders_and_preserves_relative_paths() {
+        let pages = [
+            json!({".tag":"folder","name":"Footage"}),
+            json!({"entries":[{".tag":"folder","name":"Видео"}],"has_more":true,"cursor":"next"}),
+            json!({"entries":[{".tag":"file","name":"root.mov"}],"has_more":false}),
+            json!({"entries":[{".tag":"file","name":"take.mov"}],"has_more":false}),
+        ];
+        let (url, server) = fixture(pages.into_iter().map(|page| {
+            let json = page.to_string();
+            format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{json}", json.len())
+        }).collect()).await;
+        let api = url.trim_end_matches("/file.mov");
+        let share = "https://www.dropbox.com/scl/fo/example?rlkey=test";
+        let files = dropbox_jobs(&client().unwrap(), api, share, share, "fixture")
+            .await
+            .unwrap();
+        assert_eq!(files.len(), 2);
+        assert_eq!(files[0].relative, PathBuf::from("Footage"));
+        assert_eq!(files[1].relative, PathBuf::from("Footage").join("Видео"));
+        let args: Value = serde_json::from_str(files[1].dropbox_arg.as_ref().unwrap()).unwrap();
+        assert_eq!(args, json!({"url": share, "path": "/Видео/take.mov"}));
+        let requests = server.await.unwrap();
+        assert!(requests[0].starts_with("POST /sharing/get_shared_link_metadata "));
+        assert!(requests[2].starts_with("POST /files/list_folder/continue "));
+        assert!(requests
+            .iter()
+            .all(|request| request.contains("Bearer fixture")));
+    }
+
+    #[test]
+    fn dropbox_header_preserves_unicode_paths_in_ascii_json() {
+        let args = json!({"url":"https://www.dropbox.com/scl/fo/example", "path":"/Видео/🎥.mov"});
+        let encoded = dropbox_argument(&args);
+        assert!(encoded.is_ascii());
+        assert_eq!(serde_json::from_str::<Value>(&encoded).unwrap(), args);
+    }
+
     #[test]
     fn dropbox_keeps_folder_host_and_key() {
         let u =

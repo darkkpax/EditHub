@@ -15,6 +15,9 @@ export function command<T>(
 }
 export const api = {
   googleStatus: () => command<GoogleStatus>("google_status"),
+  dropboxStatus: () => command<boolean>("dropbox_status"),
+  connectDropbox: (appKey: string) => command<void>("connect_dropbox", { appKey }),
+  disconnectDropbox: () => command<void>("disconnect_dropbox"),
   settings: () => command<Settings>("get_settings"),
   projects: () => command<Project[]>("list_projects"),
   entries: (id: string, relative = "", folderPath?: string) =>
