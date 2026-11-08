@@ -122,7 +122,10 @@ jobs:
               const asset = assets.find(asset =>
                 asset.url === target.url || asset.browser_download_url === target.url);
               if (!asset) throw new Error("Updater package is missing");
-              target.url = asset.browser_download_url;
+              const download = new URL(asset.browser_download_url);
+              const tag = encodeURIComponent(`v${manifest.version}`);
+              download.pathname = download.pathname.replace(/(\/releases\/download\/)[^/]+\//, `$1${tag}/`);
+              target.url = download.href;
             }
             await github.rest.repos.deleteReleaseAsset({
               ...context.repo,
